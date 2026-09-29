@@ -81,11 +81,16 @@ function ringPillars(g: THREE.Group, w: number, d: number, h: number, color: num
   }
 }
 
+/**
+ * hip roof covering w×d. The 4-sided cone is turned 45° inside a wrapper and the
+ * wrapper is scaled — scaling the turned cone itself would shear it into a rhombus.
+ */
 const gable = (color: number, w: number, d: number, h: number) => {
-  const roof = new THREE.Mesh(new THREE.ConeGeometry(Math.max(w, d) * 0.62, h, 4), m(color));
-  roof.rotation.y = Math.PI / 4;
-  roof.scale.set(1, 1, Math.min(w, d) / Math.max(w, d));
-  if (d > w) roof.scale.set(Math.min(w, d) / Math.max(w, d), 1, 1);
+  const cone = new THREE.Mesh(new THREE.ConeGeometry(Math.SQRT1_2, h, 4), m(color));
+  cone.rotation.y = Math.PI / 4;
+  const roof = new THREE.Group();
+  roof.add(cone);
+  roof.scale.set(w, 1, d);
   return roof;
 };
 
@@ -125,14 +130,12 @@ const BUILDERS: Record<BuildingKind, KindBuilder> = {
     g.add(at(cyl(0.06, 0.08, 0.16, P.white, 8), 0, Math.min(w, d) * 0.3 + 0.76, 0));
   },
   canteen: (g, w, d) => {
-    g.add(at(rbox(w, 0.1, d, P.concrete, 0.05), 0, 0.05, 0));
-    ringPillars(g, w - 0.3, d - 0.3, 0.6, P.cream, 1.5);
-    g.add(at(gable(P.mustard, w + 0.3, d + 0.3, 0.42), 0, 0.82, 0));
-    for (let i = 0; i < Math.max(1, Math.floor(w / 1.2)); i++) {
-      const x = -w / 2 + 0.7 + i * 1.2;
-      g.add(at(rbox(0.8, 0.06, 0.4, P.cream, 0.03), x, 0.36, 0));
-      for (const z of [-0.3, 0.3]) g.add(at(rbox(0.8, 0.05, 0.14, P.teal, 0.02), x, 0.22, z));
-    }
+    const h = FLOOR_H * 1.6;
+    g.add(at(rbox(w, h, d, P.cream, 0.08), 0, h / 2, 0));
+    // tall glazing all round so it still reads as an airy dining hall
+    storeyBands(g, h * 0.55, w, d, P.mint);
+    g.add(at(rbox(0.5, 0.4, 0.05, P.door, 0.03), 0, 0.2, d / 2 + 0.02));
+    g.add(at(gable(P.mustard, w + 0.3, d + 0.3, 0.42), 0, h + 0.21, 0));
   },
   library: (g, w, d, b) => {
     const h = FLOOR_H * b.floors;
@@ -156,9 +159,13 @@ const BUILDERS: Record<BuildingKind, KindBuilder> = {
     g.add(at(rbox(w + 0.14, 0.07, d + 0.14, P.white, 0.03), 0, h + 0.035, 0));
   },
   carport: (g, w, d) => {
+    const h = FLOOR_H * 1.4;
     g.add(at(rbox(w, 0.08, d, P.concrete, 0.04), 0, 0.04, 0));
-    ringPillars(g, w - 0.25, d - 0.25, 0.5, P.slate, 1.5);
-    g.add(at(rbox(w + 0.2, 0.09, d + 0.2, P.teal, 0.04), 0, 0.56, 0));
+    // walled on three sides, open to the south where cars drive in
+    g.add(at(rbox(w, h, 0.12, P.sand, 0.04), 0, h / 2, -d / 2 + 0.06));
+    for (const sx of [1, -1]) g.add(at(rbox(0.12, h, d, P.sand, 0.04), sx * (w / 2 - 0.06), h / 2, 0));
+    ringPillars(g, w - 0.25, d - 0.25, h, P.slate, 1.5);
+    g.add(at(rbox(w + 0.2, 0.1, d + 0.2, P.teal, 0.04), 0, h + 0.05, 0));
   },
   guard: (g, w, d) => {
     const h = FLOOR_H * 0.9;
@@ -225,7 +232,7 @@ export function buildBuildingMesh(b: Building) {
 export function heightOf(b: Building) {
   if (b.kind === 'dome') return Math.min(b.w, b.h) * 0.3 + 0.9;
   if (b.kind === 'auditorium') return FLOOR_H * 2.2 + 0.3;
-  if (b.kind === 'canteen') return 1.05;
-  if (b.kind === 'carport') return 0.65;
+  if (b.kind === 'canteen') return FLOOR_H * 1.6 + 0.45;
+  if (b.kind === 'carport') return FLOOR_H * 1.4 + 0.15;
   return FLOOR_H * b.floors + 0.2;
 }
