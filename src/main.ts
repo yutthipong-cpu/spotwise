@@ -7,7 +7,18 @@ import { buildBuildingMesh } from './buildings';
 import { CATALOG_BY_ID } from './catalog';
 import { setupLibrary } from './ui';
 import { SITE_BUILDINGS, SITE_GROUND, SITE_PROPS } from './site-roiet';
-import { allSites, createSite, currentSite, deleteSite, openSite, shippedOriginal, storageKeyFor } from './sites';
+import {
+  MAX_SIZE,
+  MIN_SIZE,
+  allSites,
+  createSite,
+  currentSite,
+  deleteSite,
+  openSite,
+  resizeSite,
+  shippedOriginal,
+  storageKeyFor,
+} from './sites';
 
 const canvas = document.getElementById('app') as HTMLCanvasElement;
 const site = currentSite();
@@ -471,11 +482,15 @@ function openLayoutFile() {
     try {
       const state = JSON.parse(await file.text());
       if (!state || typeof state.cells !== 'object') throw new Error('not a layout');
-      if (state.width !== city.width || state.height !== city.height) {
-        alert('ไฟล์นี้เป็นผังขนาดอื่น เปิดกับผังนี้ไม่ได้');
-        return;
+      const resized = state.width !== city.width || state.height !== city.height;
+      const note = resized ? `
+ขนาดผังจะเปลี่ยนจาก ${city.width}×${city.height} เป็น ${state.width}×${state.height} ช่องตามไฟล์` : '';
+      if (!confirm(`เปิดผัง "${file.name}" ทับผังปัจจุบันไหม?${note}`)) return;
+      if (resized) {
+        // the plate size is fixed for a page, so store the plan at its own size and reload
+        resizeSite(site.id, state);
+        return openSite(site.id);
       }
-      if (!confirm(`เปิดผัง "${file.name}" ทับผังปัจจุบันไหม?`)) return;
       city.load(state);
       city.save();
       selectBuilding(null);
@@ -519,6 +534,7 @@ addEventListener('keydown', (e) => {
 function setupSitePicker() {
   const picker = document.getElementById('site-picker') as HTMLSelectElement;
   for (const s of allSites()) picker.add(new Option(s.name, s.id, false, s.id === site.id));
+  picker.add(new Option(`📏 ปรับขนาดผัง (${site.width}×${site.height})…`, '__resize'));
   picker.add(new Option('➕ เพิ่มสถานที่ใหม่…', '__new'));
   if (!site.builtin) picker.add(new Option('🗑️ ลบสถานที่นี้…', '__delete'));
   document.title = `Spotwise — ${site.name}`;
@@ -527,6 +543,7 @@ function setupSitePicker() {
     const value = picker.value;
     picker.value = site.id;
     if (value === '__new') return addSite();
+    if (value === '__resize') return resizePlan();
     if (value === '__delete') {
       if (confirm(`ลบ "${site.name}" และผังทั้งหมดของสถานที่นี้? (ย้อนกลับไม่ได้)`)) {
         deleteSite(site.id);
@@ -538,15 +555,51 @@ function setupSitePicker() {
   };
 }
 
+function askSize(message: string, initial: string): [number, number] | null {
+  const size = prompt(message, initial);
+  if (size == null) return null;
+  const match = size.match(/^\s*(\d+)\s*[x×*,\s]\s*(\d+)\s*$/i);
+  if (!match) {
+    alert('ใส่ขนาดเป็น กว้างxยาว เช่น 30x20');
+    return null;
+  }
+  const [w, h] = [Number(match[1]), Number(match[2])];
+  if (w < MIN_SIZE || h < MIN_SIZE || w > MAX_SIZE || h > MAX_SIZE) {
+    alert(`ขนาดต้องอยู่ระหว่าง ${MIN_SIZE} ถึง ${MAX_SIZE} ช่อง`);
+    return null;
+  }
+  return [w, h];
+}
+
 function addSite() {
   const name = prompt('ชื่อสถานที่ใหม่')?.trim();
   if (!name) return;
-  const size = prompt('ขนาดผัง กว้าง × ยาว (ช่อง) เช่น 30x20', '30x20');
-  const match = size?.match(/^\s*(\d+)\s*[x×*,\s]\s*(\d+)\s*$/i);
-  if (!match) return size != null && alert('ใส่ขนาดเป็น กว้างxยาว เช่น 30x20');
-  const [w, h] = [Number(match[1]), Number(match[2])];
-  if (w < 5 || h < 5 || w > 120 || h > 120) return alert('ขนาดต้องอยู่ระหว่าง 5 ถึง 120 ช่อง');
-  openSite(createSite(name, w, h).id);
+  const size = askSize('ขนาดผัง กว้าง × ยาว (ช่อง) เช่น 30x20', '30x20');
+  if (size) openSite(createSite(name, ...size).id);
+}
+
+/** grows or crops from the top-left corner; new ground is lawn, things past the new edge are removed */
+function resizePlan() {
+  const size = askSize(
+    `ขนาดผังใหม่ กว้าง × ยาว (ตอนนี้ ${city.width}×${city.height})
+ขยาย: พื้นที่ใหม่เป็นสนามหญ้า · ย่อ: ของที่เลยขอบขวา/ล่างจะถูกลบ`,
+    `${city.width}x${city.height}`,
+  );
+  if (!size) return;
+  const [width, height] = size;
+  if (width === city.width && height === city.height) return;
+  const state = city.toJSON();
+  const lost = state.buildings.filter((b) => b.x + b.w > width || b.y + b.h > height);
+  if (lost.length && !confirm(`อาคาร ${lost.map((b) => b.no).join(', ')} จะอยู่นอกผังและถูกลบ ทำต่อไหม?`)) return;
+  for (let x = 0; x < width; x++) {
+    for (let y = 0; y < height; y++) {
+      if (x < city.width && y < city.height) continue;
+      const variant = Math.floor(Math.random() * 4);
+      state.cells[City.key(x, y)] = { ground: { id: 'grass', rotation: 0, variant } };
+    }
+  }
+  resizeSite(site.id, { ...state, width, height });
+  openSite(site.id);
 }
 
 setupSitePicker();

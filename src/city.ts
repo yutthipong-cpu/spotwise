@@ -263,7 +263,11 @@ export class City {
         return this.inBounds(x, y);
       }),
     );
-    this.buildings = new Map((state.buildings ?? []).map((b) => [b.id, b]));
+    this.buildings = new Map(
+      (state.buildings ?? [])
+        .filter((b) => b.x >= 0 && b.y >= 0 && b.x + b.w <= this.width && b.y + b.h <= this.height)
+        .map((b) => [b.id, b]),
+    );
     this.resetHistory();
     this.emit('*');
   }

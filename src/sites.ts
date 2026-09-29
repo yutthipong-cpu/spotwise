@@ -13,6 +13,8 @@ export interface SiteInfo {
 const LEGACY_KEY = 'tribemap.site.v3';
 const LIST_KEY = 'tribemap.sites';
 const CURRENT_KEY = 'tribemap.current-site';
+/** size overrides for built-in sites, whose defaults live in code */
+const SIZE_KEY = 'tribemap.site-sizes';
 
 export const BUILTIN_SITES: SiteInfo[] = [
   { id: 'roiet', name: 'วิทยาลัยอาชีวศึกษาร้อยเอ็ด', width: SITE_W, height: SITE_H, builtin: true },
@@ -42,7 +44,29 @@ export function customSites(): SiteInfo[] {
 }
 
 export function allSites(): SiteInfo[] {
-  return [...BUILTIN_SITES, ...customSites()];
+  const sizes = read<Record<string, [number, number]>>(SIZE_KEY, {});
+  const builtins = BUILTIN_SITES.map((s) => {
+    const original = shippedOriginal(s.id);
+    const [width, height] = sizes[s.id] ?? (original ? [original.width, original.height] : [s.width, s.height]);
+    return { ...s, width, height };
+  });
+  return [...builtins, ...customSites()];
+}
+
+export const MIN_SIZE = 5;
+export const MAX_SIZE = 120;
+
+/** change a site's plate size and rewrite its stored plan to match; anything left outside is dropped on load */
+export function resizeSite(id: string, state: CityState) {
+  if (BUILTIN_SITES.some((s) => s.id === id)) {
+    const sizes = read<Record<string, [number, number]>>(SIZE_KEY, {});
+    sizes[id] = [state.width, state.height];
+    localStorage.setItem(SIZE_KEY, JSON.stringify(sizes));
+  } else {
+    const list = customSites().map((s) => (s.id === id ? { ...s, width: state.width, height: state.height } : s));
+    localStorage.setItem(LIST_KEY, JSON.stringify(list));
+  }
+  localStorage.setItem(storageKeyFor(id), JSON.stringify(state));
 }
 
 export function storageKeyFor(id: string) {
