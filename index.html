@@ -1,0 +1,65 @@
+<!doctype html>
+<html lang="th">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>TribeMap</title>
+    <link
+      rel="icon"
+      href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🗺️</text></svg>"
+    />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link href="https://fonts.googleapis.com/css2?family=Mali:wght@400;500;600;700&display=swap" rel="stylesheet" />
+    <link rel="stylesheet" href="/src/style.css" />
+  </head>
+  <body>
+    <aside id="library">
+      <header class="brand">
+        <span class="logo">🗺️</span>
+        <div>
+          <h1>TribeMap</h1>
+          <p>ออกแบบเมืองน่ารักของคุณ</p>
+        </div>
+      </header>
+
+      <div class="search">
+        <span>🔍</span>
+        <input id="search" type="search" placeholder="ค้นหาไอเท็ม เช่น บ้าน, ถนน" autocomplete="off" />
+      </div>
+
+      <nav id="categories"></nav>
+      <div id="items"></div>
+
+      <footer class="tips">
+        <b>เคล็ดลับ</b>
+        ลากไอเท็มมาวาง หรือคลิกเลือกแล้วป้ายบนแผนที่ · <kbd>R</kbd> หมุน · <kbd>X</kbd> ยางลบ
+      </footer>
+    </aside>
+
+    <main>
+      <canvas id="app"></canvas>
+
+      <div id="topbar">
+        <button data-act="undo" title="ย้อนกลับ (Ctrl+Z)">↩️<span>ย้อน</span></button>
+        <button data-act="redo" title="ทำซ้ำ (Ctrl+Shift+Z)">↪️<span>ทำซ้ำ</span></button>
+        <span class="divider"></span>
+        <button data-act="erase" title="ยางลบ (X)">🧽<span>ยางลบ</span></button>
+        <button data-act="clear" title="ล้างแผนที่">🗑️<span>ล้าง</span></button>
+        <span class="divider"></span>
+        <button data-act="export" title="บันทึกเป็นรูป PNG">📸<span>บันทึกรูป</span></button>
+      </div>
+
+      <div id="viewctl">
+        <button data-act="rot-left" title="หมุนซ้าย (Q)">⟲</button>
+        <button data-act="rot-right" title="หมุนขวา (E)">⟳</button>
+        <button data-act="zoom-in" title="ซูมเข้า">＋</button>
+        <button data-act="zoom-out" title="ซูมออก">－</button>
+      </div>
+
+      <div id="selected"></div>
+    </main>
+
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>
