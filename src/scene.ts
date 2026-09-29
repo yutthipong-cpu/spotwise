@@ -5,6 +5,8 @@ import * as THREE from 'three';
  * scene means "rotate the view" is just an angle change, and switching to a
  * perspective camera later gets full 3D with no rendering rewrite.
  */
+export type ViewMode = 'iso' | 'oblique' | 'plan';
+
 export class IsoScene {
   readonly scene = new THREE.Scene();
   readonly camera: THREE.OrthographicCamera;
@@ -16,10 +18,14 @@ export class IsoScene {
   private static readonly ISO_POLAR = Math.PI / 3;
   /** plan view looks straight down; a hair off vertical keeps lookAt() well-defined */
   private static readonly PLAN_POLAR = 0.0001;
+  /** oblique: depth drawn at 45° down-left, at half length (cabinet projection) */
+  private static readonly OBLIQUE_A = -0.5 * Math.SQRT1_2;
+  private static readonly OBLIQUE_B = -0.5 * Math.SQRT1_2;
+  private static readonly R = 60;
   private polar = IsoScene.ISO_POLAR;
   private targetPolar = IsoScene.ISO_POLAR;
   private isoAzimuth = Math.PI / 4;
-  planView = false;
+  mode: ViewMode = 'iso';
   private zoom = 10;
   private targetZoom = 10;
   private target = new THREE.Vector3();
@@ -89,7 +95,7 @@ export class IsoScene {
       const dy = e.clientY - last.y;
       last = { x: e.clientX, y: e.clientY };
       if (mode === 'rotate') {
-        if (this.planView) return;
+        if (this.mode !== 'iso') return;
         this.targetAzimuth += dx * 0.008;
       } else {
         const scale = this.zoom / 260;
@@ -114,8 +120,11 @@ export class IsoScene {
     const aspect = this.canvas.clientWidth / this.canvas.clientHeight;
     if (!aspect) return;
     let zoom: number;
-    if (this.planView) {
+    if (this.mode === 'plan') {
       zoom = Math.max((worldW + 2) / 2 / aspect, (worldD + 2) / 2);
+    } else if (this.mode === 'oblique') {
+      const depth = -IsoScene.OBLIQUE_A * worldD;
+      zoom = Math.max((worldW + depth + 3) / 2 / aspect, (-IsoScene.OBLIQUE_B * worldD + 12) / 2);
     } else {
       const diagonal = (worldW + worldD) / Math.SQRT2;
       const needWidth = (diagonal + 3) / 2 / aspect;
@@ -129,25 +138,41 @@ export class IsoScene {
     }
   }
 
-  /** plan = straight down with north up, edges square to the screen; off = back to isometric */
-  setPlanView(on: boolean) {
-    if (on === this.planView) return;
-    this.planView = on;
-    if (on) {
-      this.isoAzimuth = this.targetAzimuth;
-      // camera on the +z (south) side so grid row 0 — north — sits at the top of the screen
-      this.targetAzimuth = Math.PI / 2 + Math.round((this.targetAzimuth - Math.PI / 2) / (2 * Math.PI)) * 2 * Math.PI;
-      this.targetPolar = IsoScene.PLAN_POLAR;
-    } else {
+  /**
+   * iso = 2:1 isometric you can rotate; oblique = front-on with depth sheared to 45°,
+   * so widths stay horizontal and heights vertical; plan = straight down, north up.
+   */
+  setViewMode(mode: ViewMode) {
+    if (mode === this.mode) return;
+    if (this.mode === 'iso') this.isoAzimuth = this.targetAzimuth;
+    this.mode = mode;
+    if (mode === 'iso') {
       this.targetAzimuth = this.isoAzimuth;
       this.targetPolar = IsoScene.ISO_POLAR;
+    } else {
+      // camera on the +z (south) side so grid row 0 — north — sits at the top of the screen
+      this.targetAzimuth = Math.PI / 2;
+      this.targetPolar = mode === 'plan' ? IsoScene.PLAN_POLAR : Math.PI / 2;
     }
+    // the shear can't be tweened, so every switch snaps
+    this.azimuth = this.targetAzimuth;
+    this.polar = this.targetPolar;
     this.target.set(this.worldW / 2, 0, this.worldD / 2);
-    this.fitToWorld(this.worldW, this.worldD, true);
+    this.fitToWorld(this.worldW, this.worldD);
+  }
+
+  /** setFromCamera assumes rays along the view axis; oblique rays run along the shear */
+  setRay(raycaster: THREE.Raycaster, pointer: THREE.Vector2) {
+    raycaster.setFromCamera(pointer, this.camera);
+    if (this.mode === 'oblique') {
+      raycaster.ray.direction
+        .set(IsoScene.OBLIQUE_A, IsoScene.OBLIQUE_B, -1)
+        .transformDirection(this.camera.matrixWorld);
+    }
   }
 
   rotateBy(steps: number) {
-    if (this.planView) return;
+    if (this.mode !== 'iso') return;
     this.targetAzimuth += (steps * Math.PI) / 4;
   }
 
@@ -169,6 +194,13 @@ export class IsoScene {
     this.camera.top = this.zoom;
     this.camera.bottom = -this.zoom;
     this.camera.updateProjectionMatrix();
+    if (this.mode === 'oblique') {
+      // shift x/y by view-space depth, measured from the target so it stays centred
+      const a = IsoScene.OBLIQUE_A, b = IsoScene.OBLIQUE_B, r = IsoScene.R;
+      const shear = new THREE.Matrix4().set(1, 0, a, a * r, 0, 1, b, b * r, 0, 0, 1, 0, 0, 0, 0, 1);
+      this.camera.projectionMatrix.multiply(shear);
+      this.camera.projectionMatrixInverse.copy(this.camera.projectionMatrix).invert();
+    }
   }
 
   update() {
@@ -178,7 +210,7 @@ export class IsoScene {
       this.zoom += (this.targetZoom - this.zoom) * 0.18;
       this.applyProjection();
     }
-    const r = 60;
+    const r = IsoScene.R;
     this.camera.position.set(
       this.target.x + r * Math.sin(this.polar) * Math.cos(this.azimuth),
       this.target.y + r * Math.cos(this.polar),

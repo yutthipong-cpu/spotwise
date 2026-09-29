@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import { RoundedBoxGeometry } from 'three/examples/jsm/geometries/RoundedBoxGeometry.js';
 import { City, type Building } from './city';
-import { IsoScene } from './scene';
+import { IsoScene, type ViewMode } from './scene';
 import { GROUND_H, buildPlacementMesh } from './meshes';
 import { buildBuildingMesh } from './buildings';
 import { CATALOG_BY_ID } from './catalog';
@@ -153,7 +153,7 @@ function updatePointer(clientX: number, clientY: number) {
     ((clientX - rect.left) / rect.width) * 2 - 1,
     -((clientY - rect.top) / rect.height) * 2 + 1,
   );
-  raycaster.setFromCamera(pointer, iso.camera);
+  iso.setRay(raycaster, pointer);
 }
 
 function updateHover(clientX: number, clientY: number) {
@@ -415,7 +415,7 @@ const ACTIONS: Record<string, () => void> = {
     }
   },
   export: exportPNG,
-  'plan-view': togglePlanView,
+  'view-mode': cycleViewMode,
   'rot-left': () => iso.rotateBy(-1),
   'rot-right': () => iso.rotateBy(1),
   'zoom-in': () => iso.zoomBy(-0.2),
@@ -426,9 +426,19 @@ for (const btn of document.querySelectorAll<HTMLButtonElement>('[data-act]')) {
   btn.onclick = () => ACTIONS[btn.dataset.act!]?.();
 }
 
-function togglePlanView() {
-  iso.setPlanView(!iso.planView);
-  document.querySelector('[data-act="plan-view"]')!.classList.toggle('active', iso.planView);
+const VIEW_MODES: { mode: ViewMode; icon: string; label: string }[] = [
+  { mode: 'iso', icon: '🧊', label: '3D' },
+  { mode: 'oblique', icon: '📐', label: 'มุมเฉียง' },
+  { mode: 'plan', icon: '🗺', label: 'ผัง' },
+];
+
+function cycleViewMode() {
+  const i = VIEW_MODES.findIndex((v) => v.mode === iso.mode);
+  const next = VIEW_MODES[(i + 1) % VIEW_MODES.length];
+  iso.setViewMode(next.mode);
+  const btn = document.querySelector<HTMLButtonElement>('[data-act="view-mode"]')!;
+  btn.textContent = next.icon;
+  btn.title = `มุมมอง: ${next.label} — กดเพื่อสลับ (P)`;
 }
 
 function exportPNG() {
@@ -454,7 +464,7 @@ addEventListener('keydown', (e) => {
   if (key === 'r') rotation = (rotation + 1) % 4;
   if (key === 'x') ACTIONS.erase();
   if (key === 'v') ACTIONS.select();
-  if (key === 'p') togglePlanView();
+  if (key === 'p') cycleViewMode();
   if (key === 'q') iso.rotateBy(-1);
   if (key === 'e') iso.rotateBy(1);
   if (key === 'escape') selectBuilding(null);
