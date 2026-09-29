@@ -3,62 +3,57 @@ import { RoundedBoxGeometry } from 'three/examples/jsm/geometries/RoundedBoxGeom
 import { City } from './city';
 import { IsoScene } from './scene';
 import { GROUND_H, buildPlacementMesh } from './meshes';
+import { BUILDING_KINDS, buildBuildingMesh } from './buildings';
 import { CATALOG_BY_ID } from './catalog';
 import { setupLibrary } from './ui';
+import { SITE_BUILDINGS, SITE_GROUND, SITE_H, SITE_PROPS, SITE_W } from './site-roiet';
 
 const canvas = document.getElementById('app') as HTMLCanvasElement;
-const city = new City(16);
-const iso = new IsoScene(canvas, city.size);
-const half = city.size / 2;
+const city = new City(SITE_W, SITE_H);
+const iso = new IsoScene(canvas, city.width, city.height);
 
 // --- terrain ---------------------------------------------------------------
 const soil = new THREE.Mesh(
-  new RoundedBoxGeometry(city.size + 0.4, 1.6, city.size + 0.4, 3, 0.3),
+  new RoundedBoxGeometry(city.width + 0.5, 1.6, city.height + 0.5, 3, 0.3),
   new THREE.MeshLambertMaterial({ color: 0xc79a70 }),
 );
-// top sits just under the lawn — level with it, the two surfaces z-fight
-soil.position.set(half, -0.88, half);
+soil.position.set(city.width / 2, -0.88, city.height / 2);
 soil.receiveShadow = true;
 
 const lawn = new THREE.Mesh(
-  new RoundedBoxGeometry(city.size, 0.5, city.size, 3, 0.16),
+  new RoundedBoxGeometry(city.width, 0.5, city.height, 3, 0.16),
   new THREE.MeshLambertMaterial({ color: 0xa9dd8b }),
 );
-lawn.position.set(half, -0.25, half);
+lawn.position.set(city.width / 2, -0.25, city.height / 2);
 lawn.receiveShadow = true;
 
-const grid = new THREE.GridHelper(city.size, city.size, 0x86bd6a, 0x86bd6a);
-grid.position.set(half, 0.03, half);
-const gridMat = grid.material as THREE.Material;
-gridMat.transparent = true;
-gridMat.opacity = 0.35;
-gridMat.depthWrite = false;
-
-iso.scene.add(soil, lawn, grid);
+iso.scene.add(soil, lawn);
 
 // --- cell rendering --------------------------------------------------------
 const cellRoot = new THREE.Group();
-iso.scene.add(cellRoot);
+const buildingRoot = new THREE.Group();
+iso.scene.add(cellRoot, buildingRoot);
+
 const rendered = new Map<string, THREE.Group>();
 const popping: { group: THREE.Group; t: number }[] = [];
 
-function disposeCell(key: string) {
+function dropCell(key: string) {
   const old = rendered.get(key);
   if (!old) return;
   cellRoot.remove(old);
-  old.traverse((o) => o instanceof THREE.Mesh && o.geometry.dispose());
   rendered.delete(key);
 }
 
 function syncCell(key: string) {
   if (key === '*') {
-    for (const k of [...rendered.keys()]) disposeCell(k);
+    for (const k of [...rendered.keys()]) dropCell(k);
     for (const [k] of city.entries()) syncCell(k);
+    syncBuildings();
     return;
   }
 
-  const hadMesh = rendered.has(key);
-  disposeCell(key);
+  const isNew = !rendered.has(key);
+  dropCell(key);
 
   const [x, y] = key.split(',').map(Number);
   const cell = city.get(x, y);
@@ -66,11 +61,11 @@ function syncCell(key: string) {
 
   const group = new THREE.Group();
   if (cell.ground) {
-    const mesh = buildPlacementMesh(cell.ground, 'ground');
+    const mesh = buildPlacementMesh(cell.ground, 'ground', x, y);
     if (mesh) group.add(mesh);
   }
   if (cell.object) {
-    const mesh = buildPlacementMesh(cell.object, 'object');
+    const mesh = buildPlacementMesh(cell.object, 'object', x, y);
     if (mesh) {
       mesh.position.y = cell.ground ? GROUND_H : 0;
       group.add(mesh);
@@ -81,9 +76,18 @@ function syncCell(key: string) {
   cellRoot.add(group);
   rendered.set(key, group);
 
-  if (!hadMesh) {
-    group.scale.set(0.4, 0.4, 0.4);
+  if (isNew) {
+    group.scale.setScalar(0.4);
     popping.push({ group, t: 0 });
+  }
+}
+
+function syncBuildings() {
+  buildingRoot.clear();
+  for (const b of city.allBuildings()) {
+    const mesh = buildBuildingMesh(b);
+    mesh.position.y = GROUND_H;
+    buildingRoot.add(mesh);
   }
 }
 
@@ -93,7 +97,11 @@ city.onChange(syncCell);
 const cursorMat = new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.55 });
 const cursor = new THREE.Mesh(new RoundedBoxGeometry(1, 0.05, 1, 2, 0.1), cursorMat);
 cursor.visible = false;
-iso.scene.add(cursor);
+
+const footprintMat = new THREE.MeshBasicMaterial({ color: 0xb9a4f0, transparent: true, opacity: 0.45 });
+const footprint = new THREE.Mesh(new THREE.BoxGeometry(1, 0.06, 1), footprintMat);
+footprint.visible = false;
+iso.scene.add(cursor, footprint);
 
 const raycaster = new THREE.Raycaster();
 const pointer = new THREE.Vector2();
@@ -115,15 +123,27 @@ function updateHover(clientX: number, clientY: number) {
     const y = Math.floor(hitPoint.z);
     hovered = city.inBounds(x, y) ? { x, y } : null;
   }
-  cursor.visible = hovered !== null;
+  cursor.visible = hovered !== null && !dragStart;
   if (hovered) cursor.position.set(hovered.x + 0.5, 0.04, hovered.y + 0.5);
+  showBuildingInfo();
+}
+
+const hoverEl = document.getElementById('hover')!;
+
+function showBuildingInfo() {
+  const b = hovered && city.buildingAt(hovered.x, hovered.y);
+  hoverEl.classList.toggle('show', Boolean(b));
+  if (b) {
+    hoverEl.innerHTML = `<b>${b.no}</b> ${b.name} · <span>${b.floors} ชั้น</span>`;
+  }
 }
 
 // --- tools -----------------------------------------------------------------
-let currentItem: string | null = 'house';
+let currentItem: string | null = 'classroom';
 let erasing = false;
 let rotation = 0;
 let painting = false;
+let dragStart: { x: number; y: number } | null = null;
 
 const library = setupLibrary((id) => {
   currentItem = id;
@@ -131,10 +151,25 @@ const library = setupLibrary((id) => {
   refreshTools();
 });
 
+const isBuildingTool = () => !erasing && CATALOG_BY_ID.get(currentItem ?? '')?.layer === 'building';
+
 function refreshTools() {
   library.setActive(erasing ? null : currentItem);
   cursorMat.color.set(erasing ? 0xff8fa3 : 0xffffff);
   document.querySelector('[data-act="erase"]')?.classList.toggle('active', erasing);
+}
+
+function rectBetween(a: { x: number; y: number }, b: { x: number; y: number }) {
+  const x = Math.min(a.x, b.x);
+  const y = Math.min(a.y, b.y);
+  return { x, y, w: Math.abs(a.x - b.x) + 1, h: Math.abs(a.y - b.y) + 1 };
+}
+
+function showFootprint(r: { x: number; y: number; w: number; h: number }) {
+  footprint.visible = true;
+  footprint.scale.set(r.w, 1, r.h);
+  footprint.position.set(r.x + r.w / 2, 0.05, r.y + r.h / 2);
+  footprintMat.color.set(city.rectIsFree(r.x, r.y, r.w, r.h) ? 0xb9a4f0 : 0xff8fa3);
 }
 
 function applyAt(x: number, y: number) {
@@ -144,20 +179,45 @@ function applyAt(x: number, y: number) {
 
 canvas.addEventListener('pointermove', (e) => {
   updateHover(e.clientX, e.clientY);
-  if (painting && hovered) applyAt(hovered.x, hovered.y);
+  if (!hovered) return;
+  if (dragStart) showFootprint(rectBetween(dragStart, hovered));
+  else if (painting) applyAt(hovered.x, hovered.y);
 });
 
 canvas.addEventListener('pointerdown', (e) => {
   if (e.button !== 0 || e.shiftKey) return;
-  painting = true;
   updateHover(e.clientX, e.clientY);
-  if (hovered) applyAt(hovered.x, hovered.y);
+  if (!hovered) return;
+
+  if (isBuildingTool()) {
+    dragStart = hovered;
+    cursor.visible = false;
+    showFootprint(rectBetween(hovered, hovered));
+  } else {
+    painting = true;
+    applyAt(hovered.x, hovered.y);
+  }
 });
 
 addEventListener('pointerup', () => {
-  if (!painting) return;
-  painting = false;
-  city.save();
+  if (dragStart && hovered && currentItem) {
+    const rect = rectBetween(dragStart, hovered);
+    const kind = currentItem as keyof typeof BUILDING_KINDS;
+    city.addBuilding({
+      ...rect,
+      kind,
+      name: BUILDING_KINDS[kind].label,
+      floors: CATALOG_BY_ID.get(currentItem)?.floors ?? 1,
+    });
+    city.save();
+  }
+  dragStart = null;
+  footprint.visible = false;
+
+  if (painting) {
+    painting = false;
+    city.save();
+  }
 });
 
 // drag & drop from the library, the Icograms-style way in
@@ -168,8 +228,21 @@ canvas.addEventListener('dragover', (e) => {
 canvas.addEventListener('drop', (e) => {
   e.preventDefault();
   const id = e.dataTransfer?.getData('text/plain');
-  if (!id || !CATALOG_BY_ID.has(id) || !hovered) return;
-  city.place(hovered.x, hovered.y, id, rotation);
+  const def = id ? CATALOG_BY_ID.get(id) : null;
+  if (!def || !hovered) return;
+  if (def.layer === 'building') {
+    city.addBuilding({
+      x: hovered.x,
+      y: hovered.y,
+      w: 3,
+      h: 2,
+      kind: def.id as keyof typeof BUILDING_KINDS,
+      name: BUILDING_KINDS[def.id as keyof typeof BUILDING_KINDS].label,
+      floors: def.floors ?? 1,
+    });
+  } else {
+    city.place(hovered.x, hovered.y, def.id, rotation);
+  }
   city.save();
 });
 
@@ -182,8 +255,15 @@ const ACTIONS: Record<string, () => void> = {
     refreshTools();
   },
   clear: () => {
-    if (confirm('ล้างแผนที่ทั้งหมดเลยไหม? (กดย้อนกลับได้)')) {
+    if (confirm('ล้างผังทั้งหมดเลยไหม? (กดย้อนกลับได้)')) {
       city.clear();
+      city.save();
+    }
+  },
+  reset: () => {
+    if (confirm('โหลดผังวิทยาลัยอาชีวศึกษาร้อยเอ็ดกลับมาใหม่ ทับของเดิมไหม?')) {
+      city.clear();
+      seedSite();
       city.save();
     }
   },
@@ -200,10 +280,8 @@ for (const btn of document.querySelectorAll<HTMLButtonElement>('[data-act]')) {
 
 function exportPNG() {
   cursor.visible = false;
-  grid.visible = false;
   iso.update();
   canvas.toBlob((blob) => {
-    grid.visible = true;
     if (!blob) return;
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
@@ -228,24 +306,21 @@ addEventListener('keydown', (e) => {
 });
 
 // --- boot ------------------------------------------------------------------
-if (!city.restore()) seedDemo();
+if (!city.restore()) {
+  seedSite();
+  city.save();
+}
 syncCell('*');
 refreshTools();
 
-function seedDemo() {
-  for (let i = 0; i < city.size; i++) {
-    city.place(i, 7, 'road');
-    city.place(7, i, 'road');
-  }
-  const layout: [number, number, string][] = [
-    [5, 5, 'house'], [4, 5, 'house2'], [5, 4, 'tower'], [10, 10, 'tower'],
-    [11, 10, 'shop'], [10, 11, 'cafe'], [3, 10, 'school'], [11, 4, 'hospital'],
-    [2, 2, 'tree'], [3, 2, 'pine'], [2, 3, 'bush'], [13, 13, 'tree'],
-    [2, 13, 'water'], [3, 13, 'water'], [2, 12, 'water'], [13, 2, 'flower'],
-    [6, 7, 'car'], [7, 10, 'bus'], [8, 7, 'lamp'], [9, 6, 'bench'],
-    [4, 8, 'fountain'], [12, 7, 'sign'],
-  ];
-  for (const [x, y, id] of layout) city.place(x, y, id);
+function seedSite() {
+  city.batch(() => {
+    for (const [x0, y0, x1, y1, id] of SITE_GROUND) {
+      for (let x = x0; x <= x1; x++) for (let y = y0; y <= y1; y++) city.place(x, y, id);
+    }
+    for (const [x, y, id] of SITE_PROPS) city.place(x, y, id);
+    for (const b of SITE_BUILDINGS) city.addBuilding(b);
+  });
 }
 
 // --- loop ------------------------------------------------------------------
@@ -255,8 +330,7 @@ function frame() {
     pop.t = Math.min(1, pop.t + 0.12);
     // overshoot then settle — the little bounce that makes placing feel good
     const e = 1 + 2.2 * Math.pow(1 - pop.t, 3) * Math.sin(pop.t * Math.PI * 1.6);
-    const s = 0.4 + 0.6 * pop.t * e;
-    pop.group.scale.setScalar(pop.t === 1 ? 1 : s);
+    pop.group.scale.setScalar(pop.t === 1 ? 1 : 0.4 + 0.6 * pop.t * e);
     if (pop.t === 1) popping.splice(i, 1);
   }
   iso.update();

@@ -1,4 +1,31 @@
-import { CATALOG_BY_ID, type Layer } from './catalog';
+import { CATALOG_BY_ID } from './catalog';
+
+/** the two layers a grid cell can hold — buildings live in their own collection */
+type CellLayer = 'ground' | 'object';
+
+export type BuildingKind =
+  | 'classroom'
+  | 'auditorium'
+  | 'dome'
+  | 'canteen'
+  | 'service'
+  | 'toilet'
+  | 'carport'
+  | 'library'
+  | 'guard';
+
+export interface Building {
+  id: string;
+  /** เลขอาคารตามผัง */
+  no: number;
+  name: string;
+  kind: BuildingKind;
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+  floors: number;
+}
 
 export interface Placement {
   id: string;
@@ -12,33 +39,38 @@ export interface Cell {
 }
 
 export interface CityState {
-  version: 2;
-  size: number;
+  version: 3;
+  width: number;
+  height: number;
   cells: Record<string, Cell>;
+  buildings: Building[];
 }
 
-const STORAGE_KEY = 'tribemap.city.v2';
-const UNDO_LIMIT = 60;
+const STORAGE_KEY = 'tribemap.site.v3';
+const UNDO_LIMIT = 40;
 
 export class City {
-  readonly size: number;
   private cells = new Map<string, Cell>();
+  private buildings = new Map<string, Building>();
   private listeners = new Set<(key: string) => void>();
   private undoStack: string[] = [];
   private redoStack: string[] = [];
+  private batching = false;
 
-  constructor(size = 20) {
-    this.size = size;
-  }
+  constructor(
+    readonly width: number,
+    readonly height: number,
+  ) {}
 
   static key(x: number, y: number) {
     return `${x},${y}`;
   }
 
   inBounds(x: number, y: number) {
-    return x >= 0 && y >= 0 && x < this.size && y < this.size;
+    return x >= 0 && y >= 0 && x < this.width && y < this.height;
   }
 
+  // --- cells ---------------------------------------------------------------
   get(x: number, y: number): Cell | undefined {
     return this.cells.get(City.key(x, y));
   }
@@ -46,15 +78,16 @@ export class City {
   place(x: number, y: number, itemId: string, rotation = 0) {
     if (!this.inBounds(x, y)) return;
     const def = CATALOG_BY_ID.get(itemId);
-    if (!def) return;
+    if (!def || def.layer === 'building') return;
 
+    const layer: CellLayer = def.layer;
     const key = City.key(x, y);
     const cell = this.cells.get(key) ?? {};
-    const current = cell[def.layer];
+    const current = cell[layer];
     if (current?.id === itemId && current.rotation === rotation) return;
 
     this.pushUndo();
-    cell[def.layer] = {
+    cell[layer] = {
       id: itemId,
       rotation,
       variant: current?.id === itemId ? current.variant : Math.floor(Math.random() * 4),
@@ -65,10 +98,18 @@ export class City {
 
   /** ลบของชิ้นบนก่อน แล้วค่อยลบพื้น — เหมือนยางลบที่ค่อยๆ ลอกทีละชั้น */
   erase(x: number, y: number) {
+    const building = this.buildingAt(x, y);
+    if (building) {
+      this.pushUndo();
+      this.buildings.delete(building.id);
+      this.emit('*');
+      return;
+    }
+
     const key = City.key(x, y);
     const cell = this.cells.get(key);
     if (!cell) return;
-    const layer: Layer = cell.object ? 'object' : 'ground';
+    const layer: CellLayer = cell.object ? 'object' : 'ground';
     if (!cell[layer]) return;
 
     this.pushUndo();
@@ -90,9 +131,43 @@ export class City {
     return [...this.cells.entries()];
   }
 
+  // --- buildings -----------------------------------------------------------
+  allBuildings() {
+    return [...this.buildings.values()];
+  }
+
+  buildingAt(x: number, y: number) {
+    return this.allBuildings().find((b) => x >= b.x && x < b.x + b.w && y >= b.y && y < b.y + b.h);
+  }
+
+  rectIsFree(x: number, y: number, w: number, h: number) {
+    return !this.allBuildings().some(
+      (b) => x < b.x + b.w && x + w > b.x && y < b.y + b.h && y + h > b.y,
+    );
+  }
+
+  addBuilding(b: Omit<Building, 'id' | 'no'> & { no?: number }) {
+    if (!this.rectIsFree(b.x, b.y, b.w, b.h)) return null;
+    const no = b.no ?? Math.max(0, ...this.allBuildings().map((x) => x.no)) + 1;
+    const building: Building = { ...b, no, id: `b${no}-${Date.now().toString(36)}` };
+    this.pushUndo();
+    this.buildings.set(building.id, building);
+    this.emit('*');
+    return building;
+  }
+
+  updateBuilding(id: string, patch: Partial<Building>) {
+    const b = this.buildings.get(id);
+    if (!b) return;
+    this.pushUndo();
+    Object.assign(b, patch);
+    this.emit('*');
+  }
+
   clear() {
     this.pushUndo();
     this.cells.clear();
+    this.buildings.clear();
     this.emit('*');
   }
 
@@ -101,20 +176,36 @@ export class City {
   }
 
   private emit(key: string) {
+    if (this.batching) return;
     for (const fn of this.listeners) fn(key);
+  }
+
+  /** seeding a whole site one cell at a time would snapshot the map ~900 times */
+  batch(fn: () => void) {
+    this.batching = true;
+    try {
+      fn();
+    } finally {
+      this.batching = false;
+    }
+    this.resetHistory();
+    this.emit('*');
   }
 
   // --- history -------------------------------------------------------------
   private snapshot() {
-    return JSON.stringify([...this.cells]);
+    return JSON.stringify({ cells: [...this.cells], buildings: [...this.buildings] });
   }
 
   private restoreSnapshot(json: string) {
-    this.cells = new Map(JSON.parse(json) as [string, Cell][]);
+    const data = JSON.parse(json) as { cells: [string, Cell][]; buildings: [string, Building][] };
+    this.cells = new Map(data.cells);
+    this.buildings = new Map(data.buildings);
     this.emit('*');
   }
 
   private pushUndo() {
+    if (this.batching) return;
     this.undoStack.push(this.snapshot());
     if (this.undoStack.length > UNDO_LIMIT) this.undoStack.shift();
     this.redoStack.length = 0;
@@ -134,19 +225,32 @@ export class City {
     this.restoreSnapshot(next);
   }
 
+  /** the seeded site should not be undoable back to an empty map */
+  resetHistory() {
+    this.undoStack.length = 0;
+    this.redoStack.length = 0;
+  }
+
   // --- persistence ---------------------------------------------------------
   toJSON(): CityState {
-    return { version: 2, size: this.size, cells: Object.fromEntries(this.cells) };
+    return {
+      version: 3,
+      width: this.width,
+      height: this.height,
+      cells: Object.fromEntries(this.cells),
+      buildings: this.allBuildings(),
+    };
   }
 
   load(state: CityState) {
-    const entries = Object.entries(state.cells).filter(([key]) => {
-      const [x, y] = key.split(',').map(Number);
-      return this.inBounds(x, y);
-    });
-    this.cells = new Map(entries);
-    this.undoStack.length = 0;
-    this.redoStack.length = 0;
+    this.cells = new Map(
+      Object.entries(state.cells).filter(([key]) => {
+        const [x, y] = key.split(',').map(Number);
+        return this.inBounds(x, y);
+      }),
+    );
+    this.buildings = new Map((state.buildings ?? []).map((b) => [b.id, b]));
+    this.resetHistory();
     this.emit('*');
   }
 
@@ -158,8 +262,10 @@ export class City {
     const raw = localStorage.getItem(STORAGE_KEY);
     if (!raw) return false;
     try {
-      this.load(JSON.parse(raw) as CityState);
-      return this.cells.size > 0;
+      const state = JSON.parse(raw) as CityState;
+      if (state.width !== this.width || state.height !== this.height) return false;
+      this.load(state);
+      return this.cells.size > 0 || this.buildings.size > 0;
     } catch {
       return false;
     }

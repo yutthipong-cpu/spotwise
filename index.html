@@ -19,13 +19,13 @@
         <span class="logo">🗺️</span>
         <div>
           <h1>TribeMap</h1>
-          <p>ออกแบบเมืองน่ารักของคุณ</p>
+          <p>วิทยาลัยอาชีวศึกษาร้อยเอ็ด</p>
         </div>
       </header>
 
       <div class="search">
         <span>🔍</span>
-        <input id="search" type="search" placeholder="ค้นหาไอเท็ม เช่น บ้าน, ถนน" autocomplete="off" />
+        <input id="search" type="search" placeholder="ค้นหาไอเท็ม เช่น อาคารเรียน, สนาม" autocomplete="off" />
       </div>
 
       <nav id="categories"></nav>
@@ -33,7 +33,8 @@
 
       <footer class="tips">
         <b>เคล็ดลับ</b>
-        ลากไอเท็มมาวาง หรือคลิกเลือกแล้วป้ายบนแผนที่ · <kbd>R</kbd> หมุน · <kbd>X</kbd> ยางลบ
+        หมวดอาคาร: คลิกค้างแล้วลากคลุมพื้นที่เพื่อกำหนดขนาดอาคาร · หมวดอื่น: คลิกป้ายได้เลย ·
+        <kbd>R</kbd> หมุน · <kbd>X</kbd> ยางลบ
       </footer>
     </aside>
 
@@ -45,7 +46,8 @@
         <button data-act="redo" title="ทำซ้ำ (Ctrl+Shift+Z)">↪️<span>ทำซ้ำ</span></button>
         <span class="divider"></span>
         <button data-act="erase" title="ยางลบ (X)">🧽<span>ยางลบ</span></button>
-        <button data-act="clear" title="ล้างแผนที่">🗑️<span>ล้าง</span></button>
+        <button data-act="clear" title="ล้างผังทั้งหมด">🗑️<span>ล้าง</span></button>
+        <button data-act="reset" title="โหลดผังวิทยาลัยกลับมาใหม่">🏫<span>ผังต้นฉบับ</span></button>
         <span class="divider"></span>
         <button data-act="export" title="บันทึกเป็นรูป PNG">📸<span>บันทึกรูป</span></button>
       </div>
@@ -58,6 +60,7 @@
       </div>
 
       <div id="selected"></div>
+      <div id="hover"></div>
     </main>
 
     <script type="module" src="/src/main.ts"></script>

@@ -20,9 +20,11 @@ export class IsoScene {
 
   constructor(
     private canvas: HTMLCanvasElement,
-    worldSize: number,
+    worldW: number,
+    worldD: number,
   ) {
-    this.target.set(worldSize / 2, 0, worldSize / 2);
+    const worldSize = Math.max(worldW, worldD);
+    this.target.set(worldW / 2, 0, worldD / 2);
 
     this.renderer = new THREE.WebGLRenderer({ canvas, antialias: true, preserveDrawingBuffer: true });
     this.renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
@@ -50,7 +52,7 @@ export class IsoScene {
 
     this.bindInput();
     this.resize();
-    this.fitToWorld(worldSize);
+    this.fitToWorld(worldW, worldD);
     // the canvas is narrower than the window (sidebar), so track the element
     new ResizeObserver(() => this.resize()).observe(canvas);
   }
@@ -96,13 +98,13 @@ export class IsoScene {
     }, { passive: false });
   }
 
-  /** frame the whole plate on load — a square of side S draws as a diamond S·√2 wide */
-  private fitToWorld(worldSize: number) {
+  /** frame the whole plate on load — a W×D plate draws as a diamond (W+D)/√2 wide */
+  private fitToWorld(worldW: number, worldD: number) {
     const aspect = this.canvas.clientWidth / this.canvas.clientHeight;
     if (!aspect) return;
-    const diagonal = worldSize * Math.SQRT2;
+    const diagonal = (worldW + worldD) / Math.SQRT2;
     const needWidth = (diagonal + 3) / 2 / aspect;
-    const needHeight = (diagonal * Math.cos(this.polar) + 7) / 2;
+    const needHeight = (diagonal * Math.cos(this.polar) + 5) / 2;
     this.zoom = this.targetZoom = Math.max(needWidth, needHeight);
     this.applyProjection();
   }

@@ -7,13 +7,16 @@ export const GROUND_H = 0.12;
 const C = {
   grass: 0xa9dd8b,
   grassDeep: 0x93d173,
+  pitch: 0x86cf76,
   water: 0x8ad4f2,
   waterDeep: 0x6ec2e8,
   road: 0xcfc6b8,
   roadLine: 0xfff7e8,
   path: 0xf3e7d3,
-  plaza: 0xf6efe4,
-  sand: 0xf6dfb4,
+  concrete: 0xe3ddd2,
+  asphalt: 0xc4bdb5,
+  clay: 0xf0a878,
+  line: 0xfffdf6,
   cream: 0xfff4e4,
   pink: 0xffc2c7,
   mint: 0xb2e5d2,
@@ -33,6 +36,8 @@ const C = {
   glass: 0xd6eefc,
   stone: 0xc9c6cb,
   dark: 0x6b6f86,
+  flagRed: 0xef5b5b,
+  flagBlue: 0x4a58a0,
 };
 
 const cache = new Map<number, THREE.MeshLambertMaterial>();
@@ -45,22 +50,46 @@ const m = (color: number) => {
   return mat;
 };
 
-const rbox = (w: number, h: number, d: number, color: number, r = 0.05) =>
-  new THREE.Mesh(new RoundedBoxGeometry(w, h, d, 3, Math.min(r, Math.min(w, h, d) / 2.05)), m(color));
+// a campus fills ~900 cells; without sharing, each would upload its own geometry
+const geometries = new Map<string, THREE.BufferGeometry>();
+const geo = <T extends THREE.BufferGeometry>(key: string, make: () => T): T => {
+  let g = geometries.get(key);
+  if (!g) {
+    g = make();
+    geometries.set(key, g);
+  }
+  return g as T;
+};
+
+const rbox = (w: number, h: number, d: number, color: number, r = 0.05) => {
+  const radius = Math.min(r, Math.min(w, h, d) / 2.05);
+  return new THREE.Mesh(
+    geo(`rb:${w},${h},${d},${radius}`, () => new RoundedBoxGeometry(w, h, d, 3, radius)),
+    m(color),
+  );
+};
 
 const ball = (r: number, color: number) =>
-  new THREE.Mesh(new THREE.SphereGeometry(r, 12, 10), m(color));
+  new THREE.Mesh(geo(`sp:${r}`, () => new THREE.SphereGeometry(r, 12, 10)), m(color));
 
 const cyl = (rTop: number, rBottom: number, h: number, color: number, seg = 12) =>
-  new THREE.Mesh(new THREE.CylinderGeometry(rTop, rBottom, h, seg), m(color));
+  new THREE.Mesh(
+    geo(`cy:${rTop},${rBottom},${h},${seg}`, () => new THREE.CylinderGeometry(rTop, rBottom, h, seg)),
+    m(color),
+  );
+
+const torus = (r: number, tube: number, seg: number, color: number) =>
+  new THREE.Mesh(geo(`to:${r},${tube},${seg}`, () => new THREE.TorusGeometry(r, tube, 6, seg)), m(color));
 
 const at = <T extends THREE.Object3D>(o: T, x: number, y: number, z: number): T => {
   o.position.set(x, y, z);
   return o;
 };
 
-const WALLS = [C.cream, C.pink, C.mint, C.lilac];
-const ROOFS = [C.coral, C.teal, C.plum, C.mustard];
+const flat = (o: THREE.Object3D) => {
+  o.rotation.x = -Math.PI / 2;
+  return o;
+};
 
 // --- ground tiles ----------------------------------------------------------
 // a slab slightly smaller than the cell leaves a hairline gap, which reads as
@@ -71,144 +100,75 @@ function slab(color: number, height = GROUND_H) {
   return g;
 }
 
-const GROUND_BUILDERS: Record<string, (p: Placement) => THREE.Group> = {
+const stripe = (w: number, d: number, x: number, z: number, color = C.line) =>
+  at(rbox(w, 0.02, d, color, 0.008), x, GROUND_H, z);
+
+/** ground patterns take the cell coordinates so markings line up tile to tile */
+type GroundBuilder = (p: Placement, x: number, y: number) => THREE.Group;
+
+const GROUND_BUILDERS: Record<string, GroundBuilder> = {
   grass: (p) => {
     const g = slab(p.variant % 2 ? C.grassDeep : C.grass);
-    for (let i = 0; i < 3; i++) {
-      const blade = cyl(0.012, 0.02, 0.1, C.leafDeep, 5);
-      const a = (i / 3) * Math.PI * 2 + p.variant;
-      g.add(at(blade, Math.cos(a) * 0.28, GROUND_H + 0.05, Math.sin(a) * 0.28));
+    if (p.variant === 0) {
+      for (let i = 0; i < 3; i++) {
+        const a = (i / 3) * Math.PI * 2;
+        g.add(at(cyl(0.01, 0.018, 0.08, C.leafDeep, 5), Math.cos(a) * 0.26, GROUND_H + 0.04, Math.sin(a) * 0.26));
+      }
     }
     return g;
   },
+  concrete: () => slab(C.concrete),
   road: () => {
     const g = slab(C.road);
-    g.add(at(rbox(0.26, 0.03, 0.08, C.roadLine, 0.015), 0, GROUND_H, 0));
+    g.add(stripe(0.26, 0.08, 0, 0, C.roadLine));
     return g;
   },
   path: () => {
     const g = slab(C.path);
-    for (const x of [-0.24, 0.24]) g.add(at(rbox(0.3, 0.02, 0.3, C.plaza, 0.04), x, GROUND_H, 0));
+    for (const x of [-0.24, 0.24]) g.add(stripe(0.3, 0.3, x, 0, C.concrete));
     return g;
   },
-  plaza: () => slab(C.plaza),
-  sand: (p) => {
-    const g = slab(C.sand);
-    if (p.variant % 2) g.add(at(ball(0.05, C.stone), 0.2, GROUND_H + 0.02, -0.2));
+  parking: (_p, x) => {
+    const g = slab(C.asphalt);
+    // one stall line per cell edge, so neighbours read as a continuous row of bays
+    g.add(stripe(0.03, 0.9, -0.49, 0));
+    if (x % 2 === 0) g.add(stripe(0.03, 0.9, 0, 0));
+    g.add(stripe(0.98, 0.03, 0, -0.49));
+    return g;
+  },
+  field: (_p, x) => {
+    // mown stripes run the length of the pitch instead of per-tile decoration
+    const g = slab(x % 2 ? C.pitch : C.grassDeep);
+    g.add(stripe(0.03, 0.98, -0.49, 0));
+    return g;
+  },
+  court: () => {
+    const g = slab(C.clay);
+    g.add(stripe(0.03, 0.98, -0.49, 0));
+    g.add(stripe(0.98, 0.03, 0, -0.49));
     return g;
   },
   water: () => {
     const g = slab(C.water, GROUND_H * 0.7);
-    const ripple = new THREE.Mesh(new THREE.TorusGeometry(0.16, 0.018, 6, 16), m(C.waterDeep));
-    ripple.rotation.x = -Math.PI / 2;
-    g.add(at(ripple, 0, GROUND_H * 0.7 + 0.01, 0.06));
+    g.add(at(flat(torus(0.16, 0.018, 16, C.waterDeep)), 0, GROUND_H * 0.7 + 0.01, 0.06));
     return g;
   },
 };
 
-// --- buildings -------------------------------------------------------------
-function windows(group: THREE.Group, rows: number, y0: number, step: number, width: number) {
-  for (let r = 0; r < rows; r++) {
-    for (const x of [-width / 4, width / 4]) {
-      group.add(at(rbox(0.14, 0.16, 0.03, C.glass, 0.04), x, y0 + r * step, width / 2 + 0.005));
-    }
-  }
-}
-
-function gableRoof(color: number, width: number, height: number) {
+const gableRoof = (color: number, width: number, height: number) => {
   const roof = new THREE.Mesh(new THREE.ConeGeometry(width * 0.78, height, 4), m(color));
   roof.rotation.y = Math.PI / 4;
   return roof;
+};
+
+function pillars(g: THREE.Group, w: number, d: number, h: number, color: number) {
+  for (const x of [-w, w]) {
+    for (const z of [-d, d]) g.add(at(cyl(0.035, 0.04, h, color, 8), x, h / 2, z));
+  }
 }
 
-const OBJECT_BUILDERS: Record<string, (p: Placement) => THREE.Group> = {
-  house: (p) => {
-    const g = new THREE.Group();
-    const wall = WALLS[p.variant % 4];
-    const roof = ROOFS[p.variant % 4];
-    g.add(at(rbox(0.66, 0.42, 0.66, wall, 0.1), 0, 0.21, 0));
-    windows(g, 1, 0.24, 0, 0.66);
-    g.add(at(rbox(0.16, 0.24, 0.04, C.trunk, 0.03), 0, 0.12, 0.34));
-    g.add(at(gableRoof(roof, 0.66, 0.34), 0, 0.59, 0));
-    g.add(at(rbox(0.1, 0.2, 0.1, roof, 0.03), 0.18, 0.66, -0.14));
-    return g;
-  },
-  house2: (p) => {
-    const g = new THREE.Group();
-    const wall = WALLS[(p.variant + 1) % 4];
-    const roof = ROOFS[(p.variant + 2) % 4];
-    g.add(at(rbox(0.68, 0.76, 0.62, wall, 0.1), 0, 0.38, 0));
-    windows(g, 2, 0.26, 0.34, 0.62);
-    g.add(at(gableRoof(roof, 0.7, 0.32), 0, 0.92, 0));
-    g.add(at(rbox(0.34, 0.06, 0.24, roof, 0.03), 0, 0.5, 0.42));
-    return g;
-  },
-  tower: (p) => {
-    const g = new THREE.Group();
-    const floors = 5 + (p.variant % 4);
-    const h = 0.32 * floors;
-    g.add(at(rbox(0.62, h, 0.62, WALLS[p.variant % 4], 0.08), 0, h / 2, 0));
-    for (let f = 0; f < floors; f++) {
-      const band = at(rbox(0.5, 0.15, 0.64, C.glass, 0.05), 0, 0.2 + f * 0.32, 0);
-      g.add(band);
-      const cross = band.clone();
-      cross.rotation.y = Math.PI / 2;
-      g.add(cross);
-    }
-    g.add(at(rbox(0.68, 0.07, 0.68, C.leafLime, 0.03), 0, h + 0.035, 0));
-    g.add(at(cyl(0.02, 0.02, 0.22, C.slate, 6), 0.18, h + 0.14, 0.18));
-    return g;
-  },
-  shop: (p) => {
-    const g = new THREE.Group();
-    g.add(at(rbox(0.74, 0.44, 0.6, C.cream, 0.08), 0, 0.22, 0));
-    g.add(at(rbox(0.78, 0.1, 0.64, ROOFS[p.variant % 4], 0.04), 0, 0.49, 0));
-    g.add(at(rbox(0.6, 0.22, 0.04, C.glass, 0.05), 0, 0.26, 0.31));
-    const awning = at(rbox(0.72, 0.05, 0.22, C.coral, 0.03), 0, 0.42, 0.38);
-    awning.rotation.x = -0.35;
-    g.add(awning);
-    return g;
-  },
-  cafe: () => {
-    const g = new THREE.Group();
-    g.add(at(rbox(0.6, 0.46, 0.6, C.peach, 0.1), 0, 0.23, 0));
-    g.add(at(rbox(0.66, 0.08, 0.66, C.teal, 0.04), 0, 0.5, 0));
-    g.add(at(rbox(0.42, 0.22, 0.04, C.glass, 0.05), 0, 0.26, 0.31));
-    g.add(at(cyl(0.11, 0.13, 0.03, C.white, 10), 0.26, 0.58, 0.26));
-    g.add(at(cyl(0.07, 0.05, 0.12, C.white, 10), 0.26, 0.65, 0.26));
-    return g;
-  },
-  school: () => {
-    const g = new THREE.Group();
-    g.add(at(rbox(0.82, 0.62, 0.5, C.cream, 0.08), 0, 0.31, 0));
-    windows(g, 2, 0.24, 0.28, 0.5);
-    g.add(at(rbox(0.3, 0.8, 0.34, C.pink, 0.08), 0, 0.4, -0.16));
-    g.add(at(gableRoof(C.coral, 0.34, 0.26), 0, 0.93, -0.16));
-    g.add(at(cyl(0.1, 0.1, 0.02, C.white, 12), 0, 0.68, 0.18));
-    return g;
-  },
-  hospital: () => {
-    const g = new THREE.Group();
-    g.add(at(rbox(0.7, 0.9, 0.62, C.white, 0.08), 0, 0.45, 0));
-    windows(g, 3, 0.26, 0.28, 0.62);
-    g.add(at(rbox(0.2, 0.06, 0.03, C.coral, 0.01), 0, 0.78, 0.32));
-    g.add(at(rbox(0.06, 0.2, 0.03, C.coral, 0.01), 0, 0.78, 0.32));
-    g.add(at(rbox(0.76, 0.06, 0.68, C.mint, 0.03), 0, 0.93, 0));
-    return g;
-  },
-  factory: () => {
-    const g = new THREE.Group();
-    g.add(at(rbox(0.8, 0.44, 0.66, C.slate, 0.07), 0, 0.22, 0));
-    for (const x of [-0.24, 0, 0.24]) {
-      const saw = at(cyl(0.12, 0.12, 0.64, C.cream, 3), x, 0.5, 0);
-      saw.rotation.set(Math.PI / 2, 0, 0);
-      g.add(saw);
-    }
-    g.add(at(cyl(0.08, 0.1, 0.5, C.pink, 10), -0.3, 0.68, -0.22));
-    g.add(at(ball(0.09, C.white), -0.3, 0.96, -0.22));
-    return g;
-  },
-
+// --- objects ---------------------------------------------------------------
+const OBJECT_BUILDERS: Record<string, GroundBuilder> = {
   // --- nature --------------------------------------------------------------
   tree: (p) => {
     const g = new THREE.Group();
@@ -225,13 +185,17 @@ const OBJECT_BUILDERS: Record<string, (p: Placement) => THREE.Group> = {
     }
     return g;
   },
-  pine: (p) => {
+  palm: (p) => {
     const g = new THREE.Group();
-    const s = 0.9 + (p.variant % 3) * 0.1;
-    g.add(at(cyl(0.05, 0.07, 0.2, C.trunk, 8), 0, 0.1, 0));
-    for (let i = 0; i < 3; i++) {
-      g.add(at(cyl(0, 0.26 - i * 0.06, 0.26, i % 2 ? C.leafDeep : C.leaf, 10), 0, (0.26 + i * 0.2) * s, 0));
+    const h = 0.5 + (p.variant % 3) * 0.08;
+    g.add(at(cyl(0.04, 0.06, h, C.trunk, 8), 0, h / 2, 0));
+    for (let i = 0; i < 6; i++) {
+      const a = (i / 6) * Math.PI * 2;
+      const frond = at(cyl(0.01, 0.06, 0.3, i % 2 ? C.leafDeep : C.leaf, 6), Math.cos(a) * 0.14, h + 0.06, Math.sin(a) * 0.14);
+      frond.rotation.set(Math.sin(a) * 1.1, 0, -Math.cos(a) * 1.1);
+      g.add(frond);
     }
+    g.add(at(ball(0.05, C.leafLime), 0, h + 0.08, 0));
     return g;
   },
   bush: (p) => {
@@ -265,35 +229,55 @@ const OBJECT_BUILDERS: Record<string, (p: Placement) => THREE.Group> = {
   },
 
   // --- props ---------------------------------------------------------------
-  car: (p) => {
+  flagpole: () => {
     const g = new THREE.Group();
-    const body = [C.coral, C.sky, C.mustard, C.mint][p.variant % 4];
-    g.add(at(rbox(0.5, 0.16, 0.26, body, 0.07), 0, 0.14, 0));
-    g.add(at(rbox(0.26, 0.14, 0.24, C.glass, 0.06), -0.02, 0.27, 0));
-    for (const [x, z] of [[-0.16, 0.14], [0.16, 0.14], [-0.16, -0.14], [0.16, -0.14]]) {
-      const w = at(cyl(0.06, 0.06, 0.05, C.dark, 10), x, 0.06, z);
-      w.rotation.x = Math.PI / 2;
-      g.add(w);
+    g.add(at(cyl(0.3, 0.34, 0.06, C.concrete, 16), 0, 0.03, 0));
+    g.add(at(cyl(0.22, 0.26, 0.06, C.white, 16), 0, 0.09, 0));
+    g.add(at(cyl(0.022, 0.028, 0.9, C.white, 8), 0, 0.57, 0));
+    for (const [i, color] of [C.flagRed, C.white, C.flagBlue].entries()) {
+      g.add(at(rbox(0.26, 0.055, 0.015, color, 0.006), 0.15, 0.93 - i * 0.055, 0));
     }
+    g.add(at(ball(0.03, C.mustard), 0, 1.03, 0));
     return g;
   },
-  bus: (p) => {
+  statue: () => {
     const g = new THREE.Group();
-    const body = [C.mustard, C.teal, C.coral, C.lilac][p.variant % 4];
-    g.add(at(rbox(0.78, 0.32, 0.32, body, 0.09), 0, 0.24, 0));
-    for (const x of [-0.22, 0, 0.22]) g.add(at(rbox(0.16, 0.14, 0.34, C.glass, 0.05), x, 0.3, 0));
-    for (const [x, z] of [[-0.24, 0.17], [0.24, 0.17], [-0.24, -0.17], [0.24, -0.17]]) {
-      const w = at(cyl(0.07, 0.07, 0.05, C.dark, 10), x, 0.07, z);
-      w.rotation.x = Math.PI / 2;
-      g.add(w);
-    }
+    g.add(at(rbox(0.5, 0.1, 0.5, C.white, 0.03), 0, 0.05, 0));
+    g.add(at(rbox(0.34, 0.12, 0.34, C.concrete, 0.03), 0, 0.16, 0));
+    const body = at(cyl(0.06, 0.15, 0.24, C.mustard, 12), 0, 0.34, 0);
+    g.add(body);
+    g.add(at(ball(0.075, C.mustard), 0, 0.5, 0));
+    g.add(at(ball(0.02, C.mustard), 0, 0.58, 0));
     return g;
   },
-  lamp: () => {
+  sala: () => {
     const g = new THREE.Group();
-    g.add(at(cyl(0.03, 0.04, 0.6, C.slate, 8), 0, 0.3, 0));
-    g.add(at(rbox(0.22, 0.04, 0.05, C.slate, 0.02), 0.1, 0.6, 0));
-    g.add(at(ball(0.07, C.mustard), 0.2, 0.56, 0));
+    g.add(at(rbox(0.66, 0.08, 0.66, C.concrete, 0.03), 0, 0.04, 0));
+    pillars(g, 0.25, 0.25, 0.34, C.coral);
+    g.add(at(gableRoof(C.coral, 0.74, 0.22), 0, 0.46, 0));
+    g.add(at(gableRoof(C.mustard, 0.5, 0.18), 0, 0.62, 0));
+    for (const z of [-0.2, 0.2]) g.add(at(rbox(0.5, 0.04, 0.12, C.trunk, 0.02), 0, 0.14, z));
+    return g;
+  },
+  gate: () => {
+    const g = new THREE.Group();
+    for (const x of [-0.34, 0.34]) g.add(at(rbox(0.16, 0.6, 0.16, C.cream, 0.04), x, 0.3, 0));
+    g.add(at(rbox(0.84, 0.1, 0.12, C.coral, 0.04), 0, 0.64, 0));
+    g.add(at(rbox(0.5, 0.14, 0.04, C.white, 0.03), 0, 0.64, 0.08));
+    for (const x of [-0.16, 0.16]) g.add(at(rbox(0.28, 0.4, 0.04, C.slate, 0.02), x, 0.2, 0));
+    return g;
+  },
+  fence: () => {
+    const g = new THREE.Group();
+    for (const y of [0.16, 0.3]) g.add(at(rbox(0.98, 0.04, 0.04, C.white, 0.015), 0, y, 0));
+    for (let i = -2; i <= 2; i++) g.add(at(rbox(0.04, 0.38, 0.04, C.white, 0.015), i * 0.22, 0.19, 0));
+    return g;
+  },
+  sign: (p) => {
+    const g = new THREE.Group();
+    for (const x of [-0.22, 0.22]) g.add(at(rbox(0.07, 0.3, 0.07, C.stone, 0.02), x, 0.15, 0));
+    g.add(at(rbox(0.62, 0.26, 0.06, [C.mint, C.pink, C.sky, C.mustard][p.variant % 4], 0.04), 0, 0.36, 0));
+    g.add(at(rbox(0.5, 0.05, 0.02, C.white, 0.01), 0, 0.36, 0.035));
     return g;
   },
   bench: () => {
@@ -303,28 +287,50 @@ const OBJECT_BUILDERS: Record<string, (p: Placement) => THREE.Group> = {
     for (const x of [-0.18, 0.18]) g.add(at(rbox(0.04, 0.14, 0.14, C.slate, 0.02), x, 0.07, 0));
     return g;
   },
-  fountain: () => {
+  lamp: () => {
     const g = new THREE.Group();
-    g.add(at(cyl(0.34, 0.36, 0.14, C.plaza, 16), 0, 0.07, 0));
-    g.add(at(cyl(0.27, 0.27, 0.06, C.water, 16), 0, 0.13, 0));
-    g.add(at(cyl(0.05, 0.07, 0.24, C.plaza, 10), 0, 0.24, 0));
-    g.add(at(ball(0.1, C.water), 0, 0.4, 0));
+    g.add(at(cyl(0.03, 0.04, 0.6, C.slate, 8), 0, 0.3, 0));
+    g.add(at(rbox(0.22, 0.04, 0.05, C.slate, 0.02), 0.1, 0.6, 0));
+    g.add(at(ball(0.07, C.mustard), 0.2, 0.56, 0));
     return g;
   },
-  sign: (p) => {
+  bin: () => {
     const g = new THREE.Group();
-    g.add(at(cyl(0.025, 0.03, 0.34, C.trunk, 8), 0, 0.17, 0));
-    g.add(at(rbox(0.34, 0.2, 0.04, [C.mint, C.pink, C.sky, C.mustard][p.variant % 4], 0.05), 0, 0.42, 0));
+    g.add(at(cyl(0.11, 0.09, 0.22, C.teal, 10), 0, 0.11, 0));
+    g.add(at(cyl(0.12, 0.12, 0.04, C.mint, 10), 0, 0.24, 0));
+    return g;
+  },
+  schoolbus: () => {
+    const g = new THREE.Group();
+    g.add(at(rbox(0.78, 0.32, 0.32, C.mustard, 0.09), 0, 0.24, 0));
+    for (const x of [-0.22, 0, 0.22]) g.add(at(rbox(0.16, 0.14, 0.34, C.glass, 0.05), x, 0.3, 0));
+    g.add(at(rbox(0.8, 0.05, 0.05, C.flagRed, 0.02), 0, 0.16, 0));
+    for (const [x, z] of [[-0.24, 0.17], [0.24, 0.17], [-0.24, -0.17], [0.24, -0.17]]) {
+      const w = at(cyl(0.07, 0.07, 0.05, C.dark, 10), x, 0.07, z);
+      w.rotation.x = Math.PI / 2;
+      g.add(w);
+    }
+    return g;
+  },
+  car: (p) => {
+    const g = new THREE.Group();
+    const body = [C.coral, C.sky, C.white, C.mint][p.variant % 4];
+    g.add(at(rbox(0.5, 0.16, 0.26, body, 0.07), 0, 0.14, 0));
+    g.add(at(rbox(0.26, 0.14, 0.24, C.glass, 0.06), -0.02, 0.27, 0));
+    for (const [x, z] of [[-0.16, 0.14], [0.16, 0.14], [-0.16, -0.14], [0.16, -0.14]]) {
+      const w = at(cyl(0.06, 0.06, 0.05, C.dark, 10), x, 0.06, z);
+      w.rotation.x = Math.PI / 2;
+      g.add(w);
+    }
     return g;
   },
 };
 
-export function buildPlacementMesh(placement: Placement, layer: 'ground' | 'object') {
-  const builders = layer === 'ground' ? GROUND_BUILDERS : OBJECT_BUILDERS;
-  const build = builders[placement.id];
+export function buildPlacementMesh(placement: Placement, layer: 'ground' | 'object', x: number, y: number) {
+  const build = layer === 'ground' ? GROUND_BUILDERS[placement.id] : OBJECT_BUILDERS[placement.id];
   if (!build) return null;
 
-  const group = build(placement);
+  const group = build(placement, x, y);
   group.rotation.y = (placement.rotation * Math.PI) / 2;
   group.traverse((o) => {
     if (o instanceof THREE.Mesh) {

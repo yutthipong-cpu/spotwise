@@ -1,4 +1,4 @@
-export type Layer = 'ground' | 'object';
+export type Layer = 'ground' | 'object' | 'building';
 
 export interface CatalogItem {
   id: string;
@@ -8,6 +8,7 @@ export interface CatalogItem {
   layer: Layer;
   /** searchable keywords, so ผู้ใช้พิมพ์ไทยหรืออังกฤษก็เจอ */
   tags: string[];
+  /** buildings only — ชั้นเริ่มต้นเมื่อวางใหม่ */
   floors?: number;
 }
 
@@ -15,9 +16,9 @@ export type CategoryId = 'ground' | 'building' | 'nature' | 'prop';
 
 export const CATEGORIES: { id: CategoryId; label: string; icon: string }[] = [
   { id: 'ground', label: 'พื้นที่', icon: '🟩' },
-  { id: 'building', label: 'อาคาร', icon: '🏠' },
+  { id: 'building', label: 'อาคาร', icon: '🏫' },
   { id: 'nature', label: 'ธรรมชาติ', icon: '🌳' },
-  { id: 'prop', label: 'ของตกแต่ง', icon: '🚗' },
+  { id: 'prop', label: 'ของตกแต่ง', icon: '🚩' },
 ];
 
 const item = (
@@ -33,36 +34,44 @@ const item = (
 export const CATALOG: CatalogItem[] = [
   // พื้นที่
   item('grass', 'สนามหญ้า', '🌱', 'ground', 'ground', ['grass', 'หญ้า', 'สนาม']),
+  item('concrete', 'ลานคอนกรีต', '⬜', 'ground', 'ground', ['concrete', 'ลาน', 'ปูน', 'พื้น']),
   item('road', 'ถนน', '🛣️', 'ground', 'ground', ['road', 'ถนน', 'ทาง']),
   item('path', 'ทางเดิน', '🚶', 'ground', 'ground', ['path', 'ทางเดิน', 'ฟุตบาท']),
-  item('plaza', 'ลานกว้าง', '⬜', 'ground', 'ground', ['plaza', 'ลาน', 'จตุรัส']),
-  item('water', 'น้ำ', '💧', 'ground', 'ground', ['water', 'น้ำ', 'ทะเล', 'สระ']),
-  item('sand', 'หาดทราย', '🏖️', 'ground', 'ground', ['sand', 'ทราย', 'หาด']),
+  item('parking', 'ที่จอดรถ', '🅿️', 'ground', 'ground', ['parking', 'จอดรถ', 'ลานจอด']),
+  item('field', 'สนามหญ้ากีฬา', '⚽', 'ground', 'ground', ['field', 'สนาม', 'ฟุตบอล', 'บอล']),
+  item('court', 'สนามบาส', '🏀', 'ground', 'ground', ['court', 'สนาม', 'บาส', 'กีฬา']),
+  item('water', 'สระน้ำ', '💧', 'ground', 'ground', ['water', 'น้ำ', 'สระ', 'บ่อ']),
 
-  // อาคาร
-  item('house', 'บ้าน', '🏠', 'building', 'object', ['house', 'บ้าน'], 1),
-  item('house2', 'บ้านสองชั้น', '🏡', 'building', 'object', ['house', 'บ้าน', 'สองชั้น'], 2),
-  item('tower', 'คอนโด', '🏢', 'building', 'object', ['tower', 'คอนโด', 'ตึก', 'อพาร์ทเมนท์'], 8),
-  item('shop', 'ร้านค้า', '🏪', 'building', 'object', ['shop', 'ร้าน', 'ค้า', 'มินิมาร์ท'], 1),
-  item('cafe', 'คาเฟ่', '☕', 'building', 'object', ['cafe', 'คาเฟ่', 'กาแฟ', 'ร้าน'], 1),
-  item('school', 'โรงเรียน', '🏫', 'building', 'object', ['school', 'โรงเรียน', 'เรียน'], 3),
-  item('hospital', 'โรงพยาบาล', '🏥', 'building', 'object', ['hospital', 'โรงพยาบาล', 'หมอ'], 4),
-  item('factory', 'โรงงาน', '🏭', 'building', 'object', ['factory', 'โรงงาน'], 2),
+  // อาคาร — ลากคลุมพื้นที่เพื่อกำหนดขนาด
+  item('classroom', 'อาคารเรียน', '🏫', 'building', 'building', ['classroom', 'อาคารเรียน', 'ตึกเรียน', 'ห้องเรียน'], 4),
+  item('auditorium', 'หอประชุม', '🎪', 'building', 'building', ['auditorium', 'หอประชุม', 'ประชุม'], 1),
+  item('dome', 'โดม', '⛺', 'building', 'building', ['dome', 'โดม', 'ลานโดม'], 1),
+  item('canteen', 'โรงอาหาร', '🍽️', 'building', 'building', ['canteen', 'โรงอาหาร', 'อาหาร'], 1),
+  item('library', 'ห้องสมุด', '📚', 'building', 'building', ['library', 'ห้องสมุด', 'หนังสือ'], 1),
+  item('service', 'อาคารบริการ', '🏢', 'building', 'building', ['service', 'อาคาร', 'ห้อง', 'สำนักงาน'], 1),
+  item('toilet', 'ห้องน้ำ', '🚻', 'building', 'building', ['toilet', 'ห้องน้ำ', 'สุขา'], 1),
+  item('carport', 'โรงรถ', '🚗', 'building', 'building', ['carport', 'โรงรถ', 'จอดรถ'], 1),
+  item('guard', 'ป้อมยาม', '🛡️', 'building', 'building', ['guard', 'ป้อมยาม', 'ยาม', 'รปภ'], 1),
 
   // ธรรมชาติ
   item('tree', 'ต้นไม้', '🌳', 'nature', 'object', ['tree', 'ต้นไม้', 'ไม้']),
-  item('pine', 'ต้นสน', '🌲', 'nature', 'object', ['pine', 'สน', 'ต้นไม้']),
+  item('palm', 'ต้นปาล์ม', '🌴', 'nature', 'object', ['palm', 'ปาล์ม', 'ต้นไม้']),
   item('bush', 'พุ่มไม้', '🌿', 'nature', 'object', ['bush', 'พุ่ม', 'ไม้']),
   item('flower', 'แปลงดอกไม้', '🌸', 'nature', 'object', ['flower', 'ดอกไม้', 'สวน']),
-  item('rock', 'ก้อนหิน', '🪨', 'nature', 'object', ['rock', 'หิน']),
+  item('rock', 'สวนหิน', '🪨', 'nature', 'object', ['rock', 'หิน', 'สวนหิน']),
 
   // ของตกแต่ง
-  item('car', 'รถยนต์', '🚗', 'prop', 'object', ['car', 'รถ', 'รถยนต์']),
-  item('bus', 'รถบัส', '🚌', 'prop', 'object', ['bus', 'รถบัส', 'รถเมล์']),
-  item('lamp', 'เสาไฟ', '💡', 'prop', 'object', ['lamp', 'ไฟ', 'เสา']),
+  item('flagpole', 'เสาธง', '🚩', 'prop', 'object', ['flag', 'เสาธง', 'ธง']),
+  item('statue', 'พระพุทธรูป', '🙏', 'prop', 'object', ['statue', 'พระ', 'พระพุทธรูป', 'ศาล']),
+  item('sala', 'ศาลา', '⛩️', 'prop', 'object', ['sala', 'ศาลา', 'ที่นั่ง', 'พักผ่อน']),
+  item('gate', 'ประตูโรงเรียน', '🚪', 'prop', 'object', ['gate', 'ประตู', 'ทางเข้า']),
+  item('fence', 'รั้ว', '🧱', 'prop', 'object', ['fence', 'รั้ว', 'กำแพง']),
+  item('sign', 'ป้ายชื่อ', '🪧', 'prop', 'object', ['sign', 'ป้าย', 'ชื่อ']),
   item('bench', 'ม้านั่ง', '🪑', 'prop', 'object', ['bench', 'ม้านั่ง', 'เก้าอี้']),
-  item('fountain', 'น้ำพุ', '⛲', 'prop', 'object', ['fountain', 'น้ำพุ']),
-  item('sign', 'ป้าย', '🪧', 'prop', 'object', ['sign', 'ป้าย']),
+  item('lamp', 'เสาไฟ', '💡', 'prop', 'object', ['lamp', 'ไฟ', 'เสา']),
+  item('bin', 'ถังขยะ', '🗑️', 'prop', 'object', ['bin', 'ถังขยะ', 'ขยะ']),
+  item('schoolbus', 'รถรับส่ง', '🚌', 'prop', 'object', ['bus', 'รถ', 'รับส่ง', 'รถบัส']),
+  item('car', 'รถยนต์', '🚗', 'prop', 'object', ['car', 'รถ', 'รถยนต์']),
 ];
 
 export const CATALOG_BY_ID = new Map(CATALOG.map((i) => [i.id, i]));
