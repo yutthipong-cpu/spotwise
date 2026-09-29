@@ -415,6 +415,8 @@ const ACTIONS: Record<string, () => void> = {
     }
   },
   export: exportPNG,
+  'save-file': saveLayoutFile,
+  'open-file': openLayoutFile,
   'view-mode': cycleViewMode,
   'rot-left': () => iso.rotateBy(-1),
   'rot-right': () => iso.rotateBy(1),
@@ -441,6 +443,47 @@ function cycleViewMode() {
   btn.title = `มุมมอง: ${next.label} — กดเพื่อสลับ (P)`;
 }
 
+function download(blob: Blob, filename: string) {
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = filename;
+  a.click();
+  URL.revokeObjectURL(url);
+}
+
+/** the browser autosave lives in one browser only; a file can be kept, shared, and reopened */
+function saveLayoutFile() {
+  const json = JSON.stringify(city.toJSON(), null, 2);
+  const stamp = new Date().toISOString().slice(0, 16).replace(/[:T]/g, '-');
+  download(new Blob([json], { type: 'application/json' }), `spotwise-ผัง-${stamp}.json`);
+}
+
+function openLayoutFile() {
+  const input = document.createElement('input');
+  input.type = 'file';
+  input.accept = '.json,application/json';
+  input.onchange = async () => {
+    const file = input.files?.[0];
+    if (!file) return;
+    try {
+      const state = JSON.parse(await file.text());
+      if (!state || typeof state.cells !== 'object') throw new Error('not a layout');
+      if (state.width !== city.width || state.height !== city.height) {
+        alert('ไฟล์นี้เป็นผังขนาดอื่น เปิดกับผังนี้ไม่ได้');
+        return;
+      }
+      if (!confirm(`เปิดผัง "${file.name}" ทับผังปัจจุบันไหม?`)) return;
+      city.load(state);
+      city.save();
+      selectBuilding(null);
+    } catch {
+      alert('อ่านไฟล์ไม่ได้ — ต้องเป็นไฟล์ .json ที่บันทึกจาก Spotwise');
+    }
+  };
+  input.click();
+}
+
 function exportPNG() {
   const wasSelected = selectedId;
   selectBuilding(null);
@@ -449,12 +492,7 @@ function exportPNG() {
   canvas.toBlob((blob) => {
     selectBuilding(wasSelected);
     if (!blob) return;
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `spotwise-${Date.now()}.png`;
-    a.click();
-    URL.revokeObjectURL(url);
+    download(blob, `spotwise-${Date.now()}.png`);
   });
 }
 
