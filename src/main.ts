@@ -415,6 +415,7 @@ const ACTIONS: Record<string, () => void> = {
     }
   },
   export: exportPNG,
+  'plan-view': togglePlanView,
   'rot-left': () => iso.rotateBy(-1),
   'rot-right': () => iso.rotateBy(1),
   'zoom-in': () => iso.zoomBy(-0.2),
@@ -423,6 +424,11 @@ const ACTIONS: Record<string, () => void> = {
 
 for (const btn of document.querySelectorAll<HTMLButtonElement>('[data-act]')) {
   btn.onclick = () => ACTIONS[btn.dataset.act!]?.();
+}
+
+function togglePlanView() {
+  iso.setPlanView(!iso.planView);
+  document.querySelector('[data-act="plan-view"]')!.classList.toggle('active', iso.planView);
 }
 
 function exportPNG() {
@@ -448,6 +454,7 @@ addEventListener('keydown', (e) => {
   if (key === 'r') rotation = (rotation + 1) % 4;
   if (key === 'x') ACTIONS.erase();
   if (key === 'v') ACTIONS.select();
+  if (key === 'p') togglePlanView();
   if (key === 'q') iso.rotateBy(-1);
   if (key === 'e') iso.rotateBy(1);
   if (key === 'escape') selectBuilding(null);

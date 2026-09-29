@@ -13,16 +13,26 @@ export class IsoScene {
   private azimuth = Math.PI / 4;
   private targetAzimuth = Math.PI / 4;
   /** 2:1 isometric — 30° above the horizon, so a square cell draws twice as wide as tall */
-  private readonly polar = Math.PI / 3;
+  private static readonly ISO_POLAR = Math.PI / 3;
+  /** plan view looks straight down; a hair off vertical keeps lookAt() well-defined */
+  private static readonly PLAN_POLAR = 0.0001;
+  private polar = IsoScene.ISO_POLAR;
+  private targetPolar = IsoScene.ISO_POLAR;
+  private isoAzimuth = Math.PI / 4;
+  planView = false;
   private zoom = 10;
   private targetZoom = 10;
   private target = new THREE.Vector3();
+  private worldW: number;
+  private worldD: number;
 
   constructor(
     private canvas: HTMLCanvasElement,
     worldW: number,
     worldD: number,
   ) {
+    this.worldW = worldW;
+    this.worldD = worldD;
     const worldSize = Math.max(worldW, worldD);
     this.target.set(worldW / 2, 0, worldD / 2);
 
@@ -79,6 +89,7 @@ export class IsoScene {
       const dy = e.clientY - last.y;
       last = { x: e.clientX, y: e.clientY };
       if (mode === 'rotate') {
+        if (this.planView) return;
         this.targetAzimuth += dx * 0.008;
       } else {
         const scale = this.zoom / 260;
@@ -98,18 +109,45 @@ export class IsoScene {
     }, { passive: false });
   }
 
-  /** frame the whole plate on load — a W×D plate draws as a diamond (W+D)/√2 wide */
-  private fitToWorld(worldW: number, worldD: number) {
+  /** frame the whole plate — iso draws a W×D plate as a diamond (W+D)/√2 wide, plan as the plain rectangle */
+  private fitToWorld(worldW: number, worldD: number, animate = false) {
     const aspect = this.canvas.clientWidth / this.canvas.clientHeight;
     if (!aspect) return;
-    const diagonal = (worldW + worldD) / Math.SQRT2;
-    const needWidth = (diagonal + 3) / 2 / aspect;
-    const needHeight = (diagonal * Math.cos(this.polar) + 5) / 2;
-    this.zoom = this.targetZoom = Math.max(needWidth, needHeight);
-    this.applyProjection();
+    let zoom: number;
+    if (this.planView) {
+      zoom = Math.max((worldW + 2) / 2 / aspect, (worldD + 2) / 2);
+    } else {
+      const diagonal = (worldW + worldD) / Math.SQRT2;
+      const needWidth = (diagonal + 3) / 2 / aspect;
+      const needHeight = (diagonal * Math.cos(IsoScene.ISO_POLAR) + 5) / 2;
+      zoom = Math.max(needWidth, needHeight);
+    }
+    this.targetZoom = zoom;
+    if (!animate) {
+      this.zoom = zoom;
+      this.applyProjection();
+    }
+  }
+
+  /** plan = straight down with north up, edges square to the screen; off = back to isometric */
+  setPlanView(on: boolean) {
+    if (on === this.planView) return;
+    this.planView = on;
+    if (on) {
+      this.isoAzimuth = this.targetAzimuth;
+      // camera on the +z (south) side so grid row 0 — north — sits at the top of the screen
+      this.targetAzimuth = Math.PI / 2 + Math.round((this.targetAzimuth - Math.PI / 2) / (2 * Math.PI)) * 2 * Math.PI;
+      this.targetPolar = IsoScene.PLAN_POLAR;
+    } else {
+      this.targetAzimuth = this.isoAzimuth;
+      this.targetPolar = IsoScene.ISO_POLAR;
+    }
+    this.target.set(this.worldW / 2, 0, this.worldD / 2);
+    this.fitToWorld(this.worldW, this.worldD, true);
   }
 
   rotateBy(steps: number) {
+    if (this.planView) return;
     this.targetAzimuth += (steps * Math.PI) / 4;
   }
 
@@ -135,6 +173,7 @@ export class IsoScene {
 
   update() {
     this.azimuth += (this.targetAzimuth - this.azimuth) * 0.14;
+    this.polar += (this.targetPolar - this.polar) * 0.14;
     if (Math.abs(this.targetZoom - this.zoom) > 0.001) {
       this.zoom += (this.targetZoom - this.zoom) * 0.18;
       this.applyProjection();

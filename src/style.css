@@ -258,7 +258,8 @@ main {
   transform: translateY(-1px);
 }
 
-#topbar button.active {
+#topbar button.active,
+#viewctl button.active {
   background: var(--pink);
 }
 
