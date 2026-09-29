@@ -16,7 +16,8 @@ const soil = new THREE.Mesh(
   new RoundedBoxGeometry(city.size + 0.4, 1.6, city.size + 0.4, 3, 0.3),
   new THREE.MeshLambertMaterial({ color: 0xc79a70 }),
 );
-soil.position.set(half, -0.8, half);
+// top sits just under the lawn — level with it, the two surfaces z-fight
+soil.position.set(half, -0.88, half);
 soil.receiveShadow = true;
 
 const lawn = new THREE.Mesh(
