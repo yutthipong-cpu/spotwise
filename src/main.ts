@@ -6,10 +6,12 @@ import { GROUND_H, buildPlacementMesh } from './meshes';
 import { buildBuildingMesh } from './buildings';
 import { CATALOG_BY_ID } from './catalog';
 import { setupLibrary } from './ui';
-import { SITE_BUILDINGS, SITE_GROUND, SITE_H, SITE_PROPS, SITE_W } from './site-roiet';
+import { SITE_BUILDINGS, SITE_GROUND, SITE_PROPS } from './site-roiet';
+import { allSites, createSite, currentSite, deleteSite, openSite, shippedOriginal, storageKeyFor } from './sites';
 
 const canvas = document.getElementById('app') as HTMLCanvasElement;
-const city = new City(SITE_W, SITE_H);
+const site = currentSite();
+const city = new City(site.width, site.height, storageKeyFor(site.id));
 const iso = new IsoScene(canvas, city.width, city.height);
 
 // --- terrain ---------------------------------------------------------------
@@ -407,7 +409,7 @@ const ACTIONS: Record<string, () => void> = {
     }
   },
   reset: () => {
-    if (confirm('โหลดผังวิทยาลัยอาชีวศึกษาร้อยเอ็ดกลับมาใหม่ ทับของเดิมไหม?')) {
+    if (confirm(`โหลดผังต้นฉบับของ${site.name}กลับมาใหม่ ทับของเดิมไหม?`)) {
       city.clear();
       seedSite();
       city.save();
@@ -513,6 +515,42 @@ addEventListener('keydown', (e) => {
   }
 });
 
+// --- sites -------------------------------------------------------------------
+function setupSitePicker() {
+  const picker = document.getElementById('site-picker') as HTMLSelectElement;
+  for (const s of allSites()) picker.add(new Option(s.name, s.id, false, s.id === site.id));
+  picker.add(new Option('➕ เพิ่มสถานที่ใหม่…', '__new'));
+  if (!site.builtin) picker.add(new Option('🗑️ ลบสถานที่นี้…', '__delete'));
+  document.title = `Spotwise — ${site.name}`;
+
+  picker.onchange = () => {
+    const value = picker.value;
+    picker.value = site.id;
+    if (value === '__new') return addSite();
+    if (value === '__delete') {
+      if (confirm(`ลบ "${site.name}" และผังทั้งหมดของสถานที่นี้? (ย้อนกลับไม่ได้)`)) {
+        deleteSite(site.id);
+        openSite('roiet');
+      }
+      return;
+    }
+    openSite(value);
+  };
+}
+
+function addSite() {
+  const name = prompt('ชื่อสถานที่ใหม่')?.trim();
+  if (!name) return;
+  const size = prompt('ขนาดผัง กว้าง × ยาว (ช่อง) เช่น 30x20', '30x20');
+  const match = size?.match(/^\s*(\d+)\s*[x×*,\s]\s*(\d+)\s*$/i);
+  if (!match) return size != null && alert('ใส่ขนาดเป็น กว้างxยาว เช่น 30x20');
+  const [w, h] = [Number(match[1]), Number(match[2])];
+  if (w < 5 || h < 5 || w > 120 || h > 120) return alert('ขนาดต้องอยู่ระหว่าง 5 ถึง 120 ช่อง');
+  openSite(createSite(name, w, h).id);
+}
+
+setupSitePicker();
+
 // --- boot ------------------------------------------------------------------
 if (!city.restore()) {
   seedSite();
@@ -522,7 +560,17 @@ syncCell('*');
 refreshTools();
 
 function seedSite() {
+  const original = shippedOriginal(site.id);
+  if (original && original.width === city.width && original.height === city.height) {
+    city.load(original);
+    return;
+  }
   city.batch(() => {
+    if (site.id !== 'roiet') {
+      // a new site starts as an empty lawn
+      for (let x = 0; x < city.width; x++) for (let y = 0; y < city.height; y++) city.place(x, y, 'grass');
+      return;
+    }
     for (const [x0, y0, x1, y1, id] of SITE_GROUND) {
       for (let x = x0; x <= x1; x++) for (let y = y0; y <= y1; y++) city.place(x, y, id);
     }

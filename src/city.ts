@@ -46,7 +46,6 @@ export interface CityState {
   buildings: Building[];
 }
 
-const STORAGE_KEY = 'tribemap.site.v3';
 const UNDO_LIMIT = 40;
 
 export class City {
@@ -60,6 +59,7 @@ export class City {
   constructor(
     readonly width: number,
     readonly height: number,
+    private storageKey: string,
   ) {}
 
   static key(x: number, y: number) {
@@ -269,11 +269,11 @@ export class City {
   }
 
   save() {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(this.toJSON()));
+    localStorage.setItem(this.storageKey, JSON.stringify(this.toJSON()));
   }
 
   restore() {
-    const raw = localStorage.getItem(STORAGE_KEY);
+    const raw = localStorage.getItem(this.storageKey);
     if (!raw) return false;
     try {
       const state = JSON.parse(raw) as CityState;

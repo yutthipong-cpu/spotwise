@@ -69,10 +69,21 @@ button {
   letter-spacing: 0.3px;
 }
 
-.brand p {
-  margin: 0;
+.brand select {
+  margin: 2px 0 0 -4px;
+  max-width: 210px;
+  font: inherit;
   font-size: 11px;
   color: var(--ink-soft);
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  padding: 1px 2px;
+  cursor: pointer;
+}
+
+.brand select:hover {
+  border-color: var(--lilac);
 }
 
 .search {
