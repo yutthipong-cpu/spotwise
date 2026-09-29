@@ -102,7 +102,11 @@ const hitPoint = new THREE.Vector3();
 let hovered: { x: number; y: number } | null = null;
 
 function updateHover(clientX: number, clientY: number) {
-  pointer.set((clientX / innerWidth) * 2 - 1, -(clientY / innerHeight) * 2 + 1);
+  const rect = canvas.getBoundingClientRect();
+  pointer.set(
+    ((clientX - rect.left) / rect.width) * 2 - 1,
+    -((clientY - rect.top) / rect.height) * 2 + 1,
+  );
   raycaster.setFromCamera(pointer, iso.camera);
   if (!raycaster.ray.intersectPlane(groundPlane, hitPoint)) {
     hovered = null;

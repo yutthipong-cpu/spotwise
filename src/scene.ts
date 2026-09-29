@@ -14,8 +14,8 @@ export class IsoScene {
   private targetAzimuth = Math.PI / 4;
   /** true isometric: 35.26° above the horizon, i.e. atan(√2) away from straight down */
   private readonly polar = Math.atan(Math.SQRT2);
-  private zoom = 8;
-  private targetZoom = 8;
+  private zoom = 10;
+  private targetZoom = 10;
   private target = new THREE.Vector3();
 
   constructor(
@@ -50,7 +50,9 @@ export class IsoScene {
 
     this.bindInput();
     this.resize();
-    addEventListener('resize', () => this.resize());
+    this.fitToWorld(worldSize);
+    // the canvas is narrower than the window (sidebar), so track the element
+    new ResizeObserver(() => this.resize()).observe(canvas);
   }
 
   private bindInput() {
@@ -94,6 +96,17 @@ export class IsoScene {
     }, { passive: false });
   }
 
+  /** frame the whole plate on load — a square of side S draws as a diamond S·√2 wide */
+  private fitToWorld(worldSize: number) {
+    const aspect = this.canvas.clientWidth / this.canvas.clientHeight;
+    if (!aspect) return;
+    const diagonal = worldSize * Math.SQRT2;
+    const needWidth = (diagonal + 3) / 2 / aspect;
+    const needHeight = (diagonal * Math.cos(this.polar) + 7) / 2;
+    this.zoom = this.targetZoom = Math.max(needWidth, needHeight);
+    this.applyProjection();
+  }
+
   rotateBy(steps: number) {
     this.targetAzimuth += (steps * Math.PI) / 4;
   }
@@ -103,12 +116,14 @@ export class IsoScene {
   }
 
   private resize() {
-    this.renderer.setSize(innerWidth, innerHeight, false);
+    const { clientWidth, clientHeight } = this.canvas;
+    if (!clientWidth || !clientHeight) return;
+    this.renderer.setSize(clientWidth, clientHeight, false);
     this.applyProjection();
   }
 
   private applyProjection() {
-    const aspect = innerWidth / innerHeight;
+    const aspect = this.canvas.clientWidth / this.canvas.clientHeight;
     this.camera.left = -this.zoom * aspect;
     this.camera.right = this.zoom * aspect;
     this.camera.top = this.zoom;
