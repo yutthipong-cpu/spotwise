@@ -436,7 +436,7 @@ function exportPNG() {
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = `tribemap-${Date.now()}.png`;
+    a.download = `spotwise-${Date.now()}.png`;
     a.click();
     URL.revokeObjectURL(url);
   });
