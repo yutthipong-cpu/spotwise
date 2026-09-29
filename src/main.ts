@@ -1,9 +1,9 @@
 import * as THREE from 'three';
 import { RoundedBoxGeometry } from 'three/examples/jsm/geometries/RoundedBoxGeometry.js';
-import { City } from './city';
+import { City, type Building } from './city';
 import { IsoScene } from './scene';
 import { GROUND_H, buildPlacementMesh } from './meshes';
-import { BUILDING_KINDS, buildBuildingMesh } from './buildings';
+import { buildBuildingMesh } from './buildings';
 import { CATALOG_BY_ID } from './catalog';
 import { setupLibrary } from './ui';
 import { SITE_BUILDINGS, SITE_GROUND, SITE_H, SITE_PROPS, SITE_W } from './site-roiet';
@@ -29,12 +29,13 @@ lawn.receiveShadow = true;
 
 iso.scene.add(soil, lawn);
 
-// --- cell rendering --------------------------------------------------------
+// --- rendering -------------------------------------------------------------
 const cellRoot = new THREE.Group();
 const buildingRoot = new THREE.Group();
 iso.scene.add(cellRoot, buildingRoot);
 
 const rendered = new Map<string, THREE.Group>();
+const buildingMeshes = new Map<string, THREE.Group>();
 const popping: { group: THREE.Group; t: number }[] = [];
 
 function dropCell(key: string) {
@@ -84,16 +85,19 @@ function syncCell(key: string) {
 
 function syncBuildings() {
   buildingRoot.clear();
+  buildingMeshes.clear();
   for (const b of city.allBuildings()) {
     const mesh = buildBuildingMesh(b);
     mesh.position.y = GROUND_H;
     buildingRoot.add(mesh);
+    buildingMeshes.set(b.id, mesh);
   }
+  drawSelection();
 }
 
 city.onChange(syncCell);
 
-// --- cursor ----------------------------------------------------------------
+// --- cursor & selection visuals --------------------------------------------
 const cursorMat = new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.55 });
 const cursor = new THREE.Mesh(new RoundedBoxGeometry(1, 0.05, 1, 2, 0.1), cursorMat);
 cursor.visible = false;
@@ -101,7 +105,41 @@ cursor.visible = false;
 const footprintMat = new THREE.MeshBasicMaterial({ color: 0xb9a4f0, transparent: true, opacity: 0.45 });
 const footprint = new THREE.Mesh(new THREE.BoxGeometry(1, 0.06, 1), footprintMat);
 footprint.visible = false;
-iso.scene.add(cursor, footprint);
+
+const selectionRoot = new THREE.Group();
+const handleGeo = new RoundedBoxGeometry(0.9, 0.9, 0.9, 2, 0.18);
+const handleMat = new THREE.MeshBasicMaterial({ color: 0xff92ae });
+const handles: THREE.Mesh[] = [];
+iso.scene.add(cursor, footprint, selectionRoot);
+
+function drawSelection() {
+  selectionRoot.clear();
+  handles.length = 0;
+  const b = selectedId ? city.getBuilding(selectedId) : null;
+  if (!b) return;
+
+  const outlineMat = new THREE.MeshBasicMaterial({ color: 0xff92ae, transparent: true, opacity: 0.85 });
+  for (const [w, d, dx, dz] of [
+    [b.w, 0.12, 0, -b.h / 2],
+    [b.w, 0.12, 0, b.h / 2],
+    [0.12, b.h, -b.w / 2, 0],
+    [0.12, b.h, b.w / 2, 0],
+  ]) {
+    const bar = new THREE.Mesh(new THREE.BoxGeometry(w, 0.08, d), outlineMat);
+    bar.position.set(b.x + b.w / 2 + dx, 0.09, b.y + b.h / 2 + dz);
+    selectionRoot.add(bar);
+  }
+
+  // one grab handle per corner, sitting just outside the footprint so grabbing
+  // one is never confused with clicking the building itself; it pins the opposite corner
+  for (const [cx, cz] of [[0, 0], [1, 0], [0, 1], [1, 1]] as const) {
+    const handle = new THREE.Mesh(handleGeo, handleMat);
+    handle.position.set(b.x + cx * b.w + (cx ? 0.5 : -0.5), 0.45, b.y + cz * b.h + (cz ? 0.5 : -0.5));
+    handle.userData.anchor = { x: cx ? b.x : b.x + b.w - 1, y: cz ? b.y : b.y + b.h - 1 };
+    selectionRoot.add(handle);
+    handles.push(handle);
+  }
+}
 
 const raycaster = new THREE.Raycaster();
 const pointer = new THREE.Vector2();
@@ -109,13 +147,17 @@ const groundPlane = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0);
 const hitPoint = new THREE.Vector3();
 let hovered: { x: number; y: number } | null = null;
 
-function updateHover(clientX: number, clientY: number) {
+function updatePointer(clientX: number, clientY: number) {
   const rect = canvas.getBoundingClientRect();
   pointer.set(
     ((clientX - rect.left) / rect.width) * 2 - 1,
     -((clientY - rect.top) / rect.height) * 2 + 1,
   );
   raycaster.setFromCamera(pointer, iso.camera);
+}
+
+function updateHover(clientX: number, clientY: number) {
+  updatePointer(clientX, clientY);
   if (!raycaster.ray.intersectPlane(groundPlane, hitPoint)) {
     hovered = null;
   } else {
@@ -123,40 +165,44 @@ function updateHover(clientX: number, clientY: number) {
     const y = Math.floor(hitPoint.z);
     hovered = city.inBounds(x, y) ? { x, y } : null;
   }
-  cursor.visible = hovered !== null && !dragStart;
+  cursor.visible = hovered !== null && mode !== 'select' && !drag;
   if (hovered) cursor.position.set(hovered.x + 0.5, 0.04, hovered.y + 0.5);
-  showBuildingInfo();
+  showHoverInfo();
 }
 
 const hoverEl = document.getElementById('hover')!;
 
-function showBuildingInfo() {
+function showHoverInfo() {
   const b = hovered && city.buildingAt(hovered.x, hovered.y);
-  hoverEl.classList.toggle('show', Boolean(b));
-  if (b) {
-    hoverEl.innerHTML = `<b>${b.no}</b> ${b.name} · <span>${b.floors} ชั้น</span>`;
-  }
+  hoverEl.classList.toggle('show', Boolean(b) && !drag);
+  if (b) hoverEl.innerHTML = `<b>${b.no}</b> ${b.name} · <span>${b.floors} ชั้น</span>`;
 }
 
 // --- tools -----------------------------------------------------------------
-let currentItem: string | null = 'classroom';
-let erasing = false;
+type Mode = 'select' | 'place' | 'erase';
+type Drag =
+  | { kind: 'paint' }
+  | { kind: 'draw'; start: { x: number; y: number } }
+  | { kind: 'move'; id: string; grab: { dx: number; dy: number } }
+  | { kind: 'resize'; id: string; anchor: { x: number; y: number } };
+
+let mode: Mode = 'select';
+let currentItem: string | null = null;
+let selectedId: string | null = null;
 let rotation = 0;
-let painting = false;
-let dragStart: { x: number; y: number } | null = null;
+let drag: Drag | null = null;
 
 const library = setupLibrary((id) => {
   currentItem = id;
-  erasing = false;
+  mode = 'place';
   refreshTools();
 });
 
-const isBuildingTool = () => !erasing && CATALOG_BY_ID.get(currentItem ?? '')?.layer === 'building';
-
 function refreshTools() {
-  library.setActive(erasing ? null : currentItem);
-  cursorMat.color.set(erasing ? 0xff8fa3 : 0xffffff);
-  document.querySelector('[data-act="erase"]')?.classList.toggle('active', erasing);
+  library.setActive(mode === 'place' ? currentItem : null, mode);
+  cursorMat.color.set(mode === 'erase' ? 0xff8fa3 : 0xffffff);
+  document.querySelector('[data-act="erase"]')?.classList.toggle('active', mode === 'erase');
+  document.querySelector('[data-act="select"]')?.classList.toggle('active', mode === 'select');
 }
 
 function rectBetween(a: { x: number; y: number }, b: { x: number; y: number }) {
@@ -165,23 +211,46 @@ function rectBetween(a: { x: number; y: number }, b: { x: number; y: number }) {
   return { x, y, w: Math.abs(a.x - b.x) + 1, h: Math.abs(a.y - b.y) + 1 };
 }
 
-function showFootprint(r: { x: number; y: number; w: number; h: number }) {
+function showFootprint(r: { x: number; y: number; w: number; h: number }, exceptId?: string) {
   footprint.visible = true;
   footprint.scale.set(r.w, 1, r.h);
   footprint.position.set(r.x + r.w / 2, 0.05, r.y + r.h / 2);
-  footprintMat.color.set(city.rectIsFree(r.x, r.y, r.w, r.h) ? 0xb9a4f0 : 0xff8fa3);
+  footprintMat.color.set(city.rectIsFree(r.x, r.y, r.w, r.h, exceptId) ? 0xb9a4f0 : 0xff8fa3);
 }
 
 function applyAt(x: number, y: number) {
-  if (erasing) city.erase(x, y);
+  if (mode === 'erase') city.erase(x, y);
   else if (currentItem) city.place(x, y, currentItem, rotation);
+}
+
+function placeBuildingItem(itemId: string, x: number, y: number, size?: { w: number; h: number }) {
+  const spec = CATALOG_BY_ID.get(itemId)?.building;
+  if (!spec) return;
+  city.addBuilding({
+    no: spec.no,
+    name: spec.name,
+    kind: spec.kind,
+    floors: spec.floors,
+    x,
+    y,
+    w: size?.w ?? spec.w,
+    h: size?.h ?? spec.h,
+  });
 }
 
 canvas.addEventListener('pointermove', (e) => {
   updateHover(e.clientX, e.clientY);
-  if (!hovered) return;
-  if (dragStart) showFootprint(rectBetween(dragStart, hovered));
-  else if (painting) applyAt(hovered.x, hovered.y);
+  if (!hovered || !drag) return;
+
+  if (drag.kind === 'paint') applyAt(hovered.x, hovered.y);
+  else if (drag.kind === 'draw') showFootprint(rectBetween(drag.start, hovered));
+  else if (drag.kind === 'resize') showFootprint(rectBetween(drag.anchor, hovered), drag.id);
+  else {
+    const b = city.getBuilding(drag.id)!;
+    const r = { x: hovered.x - drag.grab.dx, y: hovered.y - drag.grab.dy, w: b.w, h: b.h };
+    showFootprint(r, drag.id);
+    buildingMeshes.get(drag.id)?.position.set(r.x + b.w / 2, GROUND_H, r.y + b.h / 2);
+  }
 });
 
 canvas.addEventListener('pointerdown', (e) => {
@@ -189,38 +258,70 @@ canvas.addEventListener('pointerdown', (e) => {
   updateHover(e.clientX, e.clientY);
   if (!hovered) return;
 
-  if (isBuildingTool()) {
-    dragStart = hovered;
-    cursor.visible = false;
+  if (mode === 'select') {
+    const sel = selectedId ? city.getBuilding(selectedId) : null;
+    const onBody =
+      sel &&
+      hovered.x >= sel.x &&
+      hovered.x < sel.x + sel.w &&
+      hovered.y >= sel.y &&
+      hovered.y < sel.y + sel.h;
+
+    if (sel && !onBody) {
+      const grabbed = raycaster.intersectObjects(handles, false)[0];
+      if (grabbed) {
+        drag = { kind: 'resize', id: sel.id, anchor: grabbed.object.userData.anchor };
+        selectionRoot.visible = false;
+        showFootprint(rectBetween(drag.anchor, hovered), sel.id);
+        return;
+      }
+    }
+
+    const b = city.buildingAt(hovered.x, hovered.y);
+    selectBuilding(b?.id ?? null);
+    if (b) {
+      drag = { kind: 'move', id: b.id, grab: { dx: hovered.x - b.x, dy: hovered.y - b.y } };
+      selectionRoot.visible = false;
+    }
+    return;
+  }
+
+  const def = currentItem ? CATALOG_BY_ID.get(currentItem) : null;
+  if (mode === 'place' && def?.layer === 'building') {
+    drag = { kind: 'draw', start: hovered };
     showFootprint(rectBetween(hovered, hovered));
   } else {
-    painting = true;
+    drag = { kind: 'paint' };
     applyAt(hovered.x, hovered.y);
   }
 });
 
 addEventListener('pointerup', () => {
-  if (dragStart && hovered && currentItem) {
-    const rect = rectBetween(dragStart, hovered);
-    const kind = currentItem as keyof typeof BUILDING_KINDS;
-    city.addBuilding({
-      ...rect,
-      kind,
-      name: BUILDING_KINDS[kind].label,
-      floors: CATALOG_BY_ID.get(currentItem)?.floors ?? 1,
-    });
-    city.save();
-  }
-  dragStart = null;
-  footprint.visible = false;
+  if (!drag) return;
 
-  if (painting) {
-    painting = false;
-    city.save();
+  if (drag.kind === 'draw' && hovered && currentItem) {
+    const r = rectBetween(drag.start, hovered);
+    placeBuildingItem(currentItem, r.x, r.y, r);
+  } else if (drag.kind === 'move' && hovered) {
+    const b = city.getBuilding(drag.id)!;
+    const x = hovered.x - drag.grab.dx;
+    const y = hovered.y - drag.grab.dy;
+    if (city.rectIsFree(x, y, b.w, b.h, b.id)) city.updateBuilding(b.id, { x, y });
+    else syncBuildings();
+  } else if (drag.kind === 'resize' && hovered) {
+    const r = rectBetween(drag.anchor, hovered);
+    if (city.rectIsFree(r.x, r.y, r.w, r.h, drag.id)) city.updateBuilding(drag.id, r);
   }
+
+  drag = null;
+  footprint.visible = false;
+  selectionRoot.visible = true;
+  drawSelection();
+  city.save();
+  showInspector();
 });
 
-// drag & drop from the library, the Icograms-style way in
+// drag & drop from the library
 canvas.addEventListener('dragover', (e) => {
   e.preventDefault();
   updateHover(e.clientX, e.clientY);
@@ -230,34 +331,79 @@ canvas.addEventListener('drop', (e) => {
   const id = e.dataTransfer?.getData('text/plain');
   const def = id ? CATALOG_BY_ID.get(id) : null;
   if (!def || !hovered) return;
-  if (def.layer === 'building') {
-    city.addBuilding({
-      x: hovered.x,
-      y: hovered.y,
-      w: 3,
-      h: 2,
-      kind: def.id as keyof typeof BUILDING_KINDS,
-      name: BUILDING_KINDS[def.id as keyof typeof BUILDING_KINDS].label,
-      floors: def.floors ?? 1,
-    });
-  } else {
-    city.place(hovered.x, hovered.y, def.id, rotation);
-  }
+  if (def.layer === 'building') placeBuildingItem(def.id, hovered.x, hovered.y);
+  else city.place(hovered.x, hovered.y, def.id, rotation);
   city.save();
 });
 
+// --- inspector -------------------------------------------------------------
+const inspector = document.getElementById('inspector')!;
+const nameInput = inspector.querySelector('.name') as HTMLInputElement;
+
+function selectBuilding(id: string | null) {
+  selectedId = id;
+  drawSelection();
+  showInspector();
+}
+
+function showInspector() {
+  const b = selectedId ? city.getBuilding(selectedId) : null;
+  inspector.classList.toggle('show', Boolean(b));
+  if (!b) return;
+  (inspector.querySelector('.no') as HTMLElement).textContent = String(b.no);
+  if (document.activeElement !== nameInput) nameInput.value = b.name;
+  (inspector.querySelector('.floors') as HTMLElement).textContent = `${b.floors} ชั้น`;
+  (inspector.querySelector('.size') as HTMLElement).textContent = `กว้าง ${b.w} × ยาว ${b.h} ช่อง`;
+}
+
+function patchSelected(patch: Partial<Building>) {
+  if (!selectedId) return;
+  city.updateBuilding(selectedId, patch);
+  city.save();
+  showInspector();
+}
+
+nameInput.addEventListener('input', () => patchSelected({ name: nameInput.value }));
+
+const INSPECT: Record<string, () => void> = {
+  'floor-up': () => {
+    const b = selectedId && city.getBuilding(selectedId);
+    if (b) patchSelected({ floors: Math.min(12, b.floors + 1) });
+  },
+  'floor-down': () => {
+    const b = selectedId && city.getBuilding(selectedId);
+    if (b) patchSelected({ floors: Math.max(1, b.floors - 1) });
+  },
+  delete: () => {
+    if (!selectedId) return;
+    city.removeBuilding(selectedId);
+    city.save();
+    selectBuilding(null);
+  },
+};
+
+for (const btn of document.querySelectorAll<HTMLButtonElement>('[data-inspect]')) {
+  btn.onclick = () => INSPECT[btn.dataset.inspect!]?.();
+}
+
 // --- toolbar actions -------------------------------------------------------
 const ACTIONS: Record<string, () => void> = {
-  undo: () => (city.undo(), city.save()),
-  redo: () => (city.redo(), city.save()),
+  select: () => {
+    mode = 'select';
+    refreshTools();
+  },
+  undo: () => (city.undo(), city.save(), selectBuilding(null)),
+  redo: () => (city.redo(), city.save(), selectBuilding(null)),
   erase: () => {
-    erasing = !erasing;
+    mode = mode === 'erase' ? 'select' : 'erase';
+    selectBuilding(null);
     refreshTools();
   },
   clear: () => {
     if (confirm('ล้างผังทั้งหมดเลยไหม? (กดย้อนกลับได้)')) {
       city.clear();
       city.save();
+      selectBuilding(null);
     }
   },
   reset: () => {
@@ -265,6 +411,7 @@ const ACTIONS: Record<string, () => void> = {
       city.clear();
       seedSite();
       city.save();
+      selectBuilding(null);
     }
   },
   export: exportPNG,
@@ -279,9 +426,12 @@ for (const btn of document.querySelectorAll<HTMLButtonElement>('[data-act]')) {
 }
 
 function exportPNG() {
+  const wasSelected = selectedId;
+  selectBuilding(null);
   cursor.visible = false;
   iso.update();
   canvas.toBlob((blob) => {
+    selectBuilding(wasSelected);
     if (!blob) return;
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
@@ -297,8 +447,11 @@ addEventListener('keydown', (e) => {
   const key = e.key.toLowerCase();
   if (key === 'r') rotation = (rotation + 1) % 4;
   if (key === 'x') ACTIONS.erase();
+  if (key === 'v') ACTIONS.select();
   if (key === 'q') iso.rotateBy(-1);
   if (key === 'e') iso.rotateBy(1);
+  if (key === 'escape') selectBuilding(null);
+  if (key === 'delete' || key === 'backspace') INSPECT.delete();
   if (key === 'z' && (e.ctrlKey || e.metaKey)) {
     e.preventDefault();
     (e.shiftKey ? ACTIONS.redo : ACTIONS.undo)();

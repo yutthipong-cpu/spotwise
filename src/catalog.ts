@@ -1,4 +1,28 @@
+import type { BuildingKind } from './city';
+import { SITE_BUILDINGS } from './site-roiet';
+
 export type Layer = 'ground' | 'object' | 'building';
+
+export const KIND_ICON: Record<BuildingKind, string> = {
+  classroom: '🏫',
+  auditorium: '🎪',
+  dome: '⛺',
+  canteen: '🍽️',
+  library: '📚',
+  service: '🏢',
+  toilet: '🚻',
+  carport: '🚙',
+  guard: '🛡️',
+};
+
+export interface BuildingSpec {
+  no: number;
+  name: string;
+  kind: BuildingKind;
+  w: number;
+  h: number;
+  floors: number;
+}
 
 export interface CatalogItem {
   id: string;
@@ -8,15 +32,15 @@ export interface CatalogItem {
   layer: Layer;
   /** searchable keywords, so ผู้ใช้พิมพ์ไทยหรืออังกฤษก็เจอ */
   tags: string[];
-  /** buildings only — ชั้นเริ่มต้นเมื่อวางใหม่ */
-  floors?: number;
+  /** buildings only — ข้อมูลตั้งต้นเมื่อวางอาคารนี้ลงผัง */
+  building?: BuildingSpec;
 }
 
-export type CategoryId = 'ground' | 'building' | 'nature' | 'prop';
+export type CategoryId = 'ground' | 'school' | 'nature' | 'prop';
 
 export const CATEGORIES: { id: CategoryId; label: string; icon: string }[] = [
+  { id: 'school', label: 'โรงเรียน', icon: '🏫' },
   { id: 'ground', label: 'พื้นที่', icon: '🟩' },
-  { id: 'building', label: 'อาคาร', icon: '🏫' },
   { id: 'nature', label: 'ธรรมชาติ', icon: '🌳' },
   { id: 'prop', label: 'ของตกแต่ง', icon: '🚩' },
 ];
@@ -28,10 +52,22 @@ const item = (
   category: CategoryId,
   layer: Layer,
   tags: string[],
-  floors?: number,
-): CatalogItem => ({ id, label, icon, category, layer, tags, floors });
+): CatalogItem => ({ id, label, icon, category, layer, tags });
+
+/** ทุกอาคารในผังวิทยาลัยกลายเป็นไอเท็มที่หยิบมาวางซ้ำได้ */
+const SCHOOL_ITEMS: CatalogItem[] = SITE_BUILDINGS.map((b) => ({
+  id: `b${b.no}`,
+  label: `${b.no}. ${b.short}`,
+  icon: KIND_ICON[b.kind],
+  category: 'school',
+  layer: 'building',
+  tags: [b.name, b.short, String(b.no), b.kind],
+  building: { no: b.no, name: b.name, kind: b.kind, w: b.w, h: b.h, floors: b.floors },
+}));
 
 export const CATALOG: CatalogItem[] = [
+  ...SCHOOL_ITEMS,
+
   // พื้นที่
   item('grass', 'สนามหญ้า', '🌱', 'ground', 'ground', ['grass', 'หญ้า', 'สนาม']),
   item('concrete', 'ลานคอนกรีต', '⬜', 'ground', 'ground', ['concrete', 'ลาน', 'ปูน', 'พื้น']),
@@ -42,17 +78,6 @@ export const CATALOG: CatalogItem[] = [
   item('court', 'สนามบาส', '🏀', 'ground', 'ground', ['court', 'สนาม', 'บาส', 'กีฬา']),
   item('water', 'สระน้ำ', '💧', 'ground', 'ground', ['water', 'น้ำ', 'สระ', 'บ่อ']),
 
-  // อาคาร — ลากคลุมพื้นที่เพื่อกำหนดขนาด
-  item('classroom', 'อาคารเรียน', '🏫', 'building', 'building', ['classroom', 'อาคารเรียน', 'ตึกเรียน', 'ห้องเรียน'], 4),
-  item('auditorium', 'หอประชุม', '🎪', 'building', 'building', ['auditorium', 'หอประชุม', 'ประชุม'], 1),
-  item('dome', 'โดม', '⛺', 'building', 'building', ['dome', 'โดม', 'ลานโดม'], 1),
-  item('canteen', 'โรงอาหาร', '🍽️', 'building', 'building', ['canteen', 'โรงอาหาร', 'อาหาร'], 1),
-  item('library', 'ห้องสมุด', '📚', 'building', 'building', ['library', 'ห้องสมุด', 'หนังสือ'], 1),
-  item('service', 'อาคารบริการ', '🏢', 'building', 'building', ['service', 'อาคาร', 'ห้อง', 'สำนักงาน'], 1),
-  item('toilet', 'ห้องน้ำ', '🚻', 'building', 'building', ['toilet', 'ห้องน้ำ', 'สุขา'], 1),
-  item('carport', 'โรงรถ', '🚗', 'building', 'building', ['carport', 'โรงรถ', 'จอดรถ'], 1),
-  item('guard', 'ป้อมยาม', '🛡️', 'building', 'building', ['guard', 'ป้อมยาม', 'ยาม', 'รปภ'], 1),
-
   // ธรรมชาติ
   item('tree', 'ต้นไม้', '🌳', 'nature', 'object', ['tree', 'ต้นไม้', 'ไม้']),
   item('palm', 'ต้นปาล์ม', '🌴', 'nature', 'object', ['palm', 'ปาล์ม', 'ต้นไม้']),
@@ -62,15 +87,15 @@ export const CATALOG: CatalogItem[] = [
 
   // ของตกแต่ง
   item('flagpole', 'เสาธง', '🚩', 'prop', 'object', ['flag', 'เสาธง', 'ธง']),
-  item('statue', 'พระพุทธรูป', '🙏', 'prop', 'object', ['statue', 'พระ', 'พระพุทธรูป', 'ศาล']),
-  item('sala', 'ศาลา', '⛩️', 'prop', 'object', ['sala', 'ศาลา', 'ที่นั่ง', 'พักผ่อน']),
+  item('statue', 'พระพุทธรูป', '🙏', 'prop', 'object', ['statue', 'พระ', 'พระพุทธรูป']),
+  item('sala', 'ศาลา', '⛩️', 'prop', 'object', ['sala', 'ศาลา', 'ที่นั่ง']),
   item('gate', 'ประตูโรงเรียน', '🚪', 'prop', 'object', ['gate', 'ประตู', 'ทางเข้า']),
   item('fence', 'รั้ว', '🧱', 'prop', 'object', ['fence', 'รั้ว', 'กำแพง']),
   item('sign', 'ป้ายชื่อ', '🪧', 'prop', 'object', ['sign', 'ป้าย', 'ชื่อ']),
   item('bench', 'ม้านั่ง', '🪑', 'prop', 'object', ['bench', 'ม้านั่ง', 'เก้าอี้']),
   item('lamp', 'เสาไฟ', '💡', 'prop', 'object', ['lamp', 'ไฟ', 'เสา']),
   item('bin', 'ถังขยะ', '🗑️', 'prop', 'object', ['bin', 'ถังขยะ', 'ขยะ']),
-  item('schoolbus', 'รถรับส่ง', '🚌', 'prop', 'object', ['bus', 'รถ', 'รับส่ง', 'รถบัส']),
+  item('schoolbus', 'รถรับส่ง', '🚌', 'prop', 'object', ['bus', 'รถ', 'รับส่ง']),
   item('car', 'รถยนต์', '🚗', 'prop', 'object', ['car', 'รถ', 'รถยนต์']),
 ];
 

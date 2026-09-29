@@ -4,18 +4,6 @@ import type { Building, BuildingKind } from './city';
 
 export const FLOOR_H = 0.38;
 
-export const BUILDING_KINDS: Record<BuildingKind, { label: string; icon: string; floors: number }> = {
-  classroom: { label: 'อาคารเรียน', icon: '🏫', floors: 4 },
-  auditorium: { label: 'หอประชุม', icon: '🎪', floors: 1 },
-  dome: { label: 'โดม', icon: '⛺', floors: 1 },
-  canteen: { label: 'โรงอาหาร', icon: '🍽️', floors: 1 },
-  library: { label: 'ห้องสมุด', icon: '📚', floors: 1 },
-  service: { label: 'อาคารบริการ', icon: '🏢', floors: 1 },
-  toilet: { label: 'ห้องน้ำ', icon: '🚻', floors: 1 },
-  carport: { label: 'โรงรถ', icon: '🚗', floors: 1 },
-  guard: { label: 'ป้อมยาม', icon: '🛡️', floors: 1 },
-};
-
 const P = {
   cream: 0xfff3e2,
   sand: 0xf3e3c8,

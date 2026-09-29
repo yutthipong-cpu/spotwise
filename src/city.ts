@@ -140,20 +140,34 @@ export class City {
     return this.allBuildings().find((b) => x >= b.x && x < b.x + b.w && y >= b.y && y < b.y + b.h);
   }
 
-  rectIsFree(x: number, y: number, w: number, h: number) {
+  rectIsFree(x: number, y: number, w: number, h: number, exceptId?: string) {
+    if (x < 0 || y < 0 || x + w > this.width || y + h > this.height) return false;
     return !this.allBuildings().some(
-      (b) => x < b.x + b.w && x + w > b.x && y < b.y + b.h && y + h > b.y,
+      (b) => b.id !== exceptId && x < b.x + b.w && x + w > b.x && y < b.y + b.h && y + h > b.y,
     );
   }
 
   addBuilding(b: Omit<Building, 'id' | 'no'> & { no?: number }) {
     if (!this.rectIsFree(b.x, b.y, b.w, b.h)) return null;
-    const no = b.no ?? Math.max(0, ...this.allBuildings().map((x) => x.no)) + 1;
+    const used = new Set(this.allBuildings().map((x) => x.no));
+    let no = b.no ?? 1;
+    while (used.has(no)) no++;
     const building: Building = { ...b, no, id: `b${no}-${Date.now().toString(36)}` };
     this.pushUndo();
     this.buildings.set(building.id, building);
     this.emit('*');
     return building;
+  }
+
+  getBuilding(id: string) {
+    return this.buildings.get(id);
+  }
+
+  removeBuilding(id: string) {
+    if (!this.buildings.has(id)) return;
+    this.pushUndo();
+    this.buildings.delete(id);
+    this.emit('*');
   }
 
   updateBuilding(id: string, patch: Partial<Building>) {

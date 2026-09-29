@@ -42,6 +42,7 @@ export function setupLibrary(onSelect: (id: string) => void) {
       card.className = 'item';
       card.classList.toggle('active', item.id === activeId);
       card.draggable = true;
+      card.dataset.id = item.id;
       card.title = item.label;
       card.innerHTML = `<span class="emoji">${item.icon}</span><span class="name">${item.label}</span>`;
       card.onclick = () => onSelect(item.id);
@@ -53,16 +54,18 @@ export function setupLibrary(onSelect: (id: string) => void) {
     }
   }
 
-  function setActive(id: string | null) {
-    activeId = id;
+  function setActive(id: string | null, mode: 'select' | 'place' | 'erase') {
+    activeId = mode === 'place' ? id : null;
     for (const el of itemsEl.children) {
-      el.classList.toggle('active', (el as HTMLElement).title === CATALOG_BY_ID.get(id ?? '')?.label);
+      el.classList.toggle('active', (el as HTMLElement).dataset.id === activeId);
     }
-    const def = id ? CATALOG_BY_ID.get(id) : null;
-    selectedEl.classList.toggle('show', Boolean(def) || id === null);
+    const def = activeId ? CATALOG_BY_ID.get(activeId) : null;
+    selectedEl.classList.add('show');
     selectedEl.innerHTML = def
       ? `<span class="chip">${def.icon}</span> กำลังวาง: <b>${def.label}</b>`
-      : `<span class="chip">🧽</span> โหมดยางลบ — คลิกเพื่อลบ`;
+      : mode === 'erase'
+        ? `<span class="chip">🧽</span> โหมดยางลบ — คลิกเพื่อลบ`
+        : `<span class="chip">🖐️</span> โหมดเลือก — คลิกอาคารเพื่อย้าย/ปรับขนาด`;
   }
 
   renderItems();

@@ -12,8 +12,8 @@ export class IsoScene {
 
   private azimuth = Math.PI / 4;
   private targetAzimuth = Math.PI / 4;
-  /** true isometric: 35.26° above the horizon, i.e. atan(√2) away from straight down */
-  private readonly polar = Math.atan(Math.SQRT2);
+  /** 2:1 isometric — 30° above the horizon, so a square cell draws twice as wide as tall */
+  private readonly polar = Math.PI / 3;
   private zoom = 10;
   private targetZoom = 10;
   private target = new THREE.Vector3();

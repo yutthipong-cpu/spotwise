@@ -33,8 +33,8 @@
 
       <footer class="tips">
         <b>เคล็ดลับ</b>
-        หมวดอาคาร: คลิกค้างแล้วลากคลุมพื้นที่เพื่อกำหนดขนาดอาคาร · หมวดอื่น: คลิกป้ายได้เลย ·
-        <kbd>R</kbd> หมุน · <kbd>X</kbd> ยางลบ
+        <kbd>V</kbd> โหมดเลือก — คลิกอาคารแล้วลากเพื่อย้าย หรือลากมุมเพื่อปรับขนาด ·
+        หมวดโรงเรียน: ลากคลุมพื้นที่เพื่อวางอาคารใหม่ · <kbd>X</kbd> ยางลบ
       </footer>
     </aside>
 
@@ -42,6 +42,8 @@
       <canvas id="app"></canvas>
 
       <div id="topbar">
+        <button data-act="select" title="เลือก / ย้าย / ปรับขนาด (V)">🖐️<span>เลือก</span></button>
+        <span class="divider"></span>
         <button data-act="undo" title="ย้อนกลับ (Ctrl+Z)">↩️<span>ย้อน</span></button>
         <button data-act="redo" title="ทำซ้ำ (Ctrl+Shift+Z)">↪️<span>ทำซ้ำ</span></button>
         <span class="divider"></span>
@@ -61,6 +63,21 @@
 
       <div id="selected"></div>
       <div id="hover"></div>
+
+      <div id="inspector">
+        <div class="head">
+          <span class="no"></span>
+          <input class="name" type="text" spellcheck="false" />
+          <button data-inspect="delete" title="ลบอาคาร (Delete)">🗑️</button>
+        </div>
+        <div class="row">
+          <button data-inspect="floor-down">−</button>
+          <b class="floors"></b>
+          <button data-inspect="floor-up">+</button>
+          <span class="size"></span>
+        </div>
+        <p class="note">ลากตัวอาคารเพื่อย้าย · ลากจุดชมพูที่มุมเพื่อปรับกว้าง-ยาว</p>
+      </div>
     </main>
 
     <script type="module" src="/src/main.ts"></script>
